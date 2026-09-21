@@ -33,6 +33,9 @@ public sealed partial class MainForm : Form
     // header
     readonly Pill _pill = new();
     readonly Button _pauseBtn = Theme.Button("Pause");
+    readonly Button _updateBtn = Theme.Button("Update available", primary: true);
+    readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 6 * 60 * 60 * 1000 };
+    UpdateInfo? _update;
     // activity
     readonly ListView _activity = new();
     readonly Panel _lamp = new();
@@ -67,9 +70,11 @@ public sealed partial class MainForm : Form
         _miEnabled = new ToolStripMenuItem("Enabled", null, (_, _) => SetEnabled(!S.Enabled));
         _menu.Items.Add(_miEnabled);
         _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add("Check for updates…", null, (_, _) => _ = CheckForUpdates(manual: true));
         _menu.Items.Add("Exit", null, (_, _) => ExitApp());
         _tray = new NotifyIcon { ContextMenuStrip = _menu, Visible = true };
         _tray.DoubleClick += (_, _) => ShowWindow();
+        _tray.BalloonTipClicked += (_, _) => { if (_update != null) ShowUpdate(); };
 
         Link.Log += msg => Activity(msg, flash: false);
         Link.HotkeyReceived += (b, st, from) => { if (IsHandleCreated) BeginInvoke(() => OnHotkeyReceived(b, st, from)); };
@@ -87,6 +92,9 @@ public sealed partial class MainForm : Form
         _uiTimer.Tick += (_, _) => { RefreshPeers(); AudioTick(); };
         _uiTimer.Start();
         _flashTimer.Tick += (_, _) => { _flashTimer.Stop(); _lamp.BackColor = CardBorder; _lamp.Invalidate(); UpdateTray(); };
+        _updateTimer.Tick += (_, _) => _ = CheckForUpdates(manual: false);
+        _updateTimer.Start();
+        _ = Task.Delay(8000).ContinueWith(_ => { if (IsHandleCreated) BeginInvoke(() => _ = CheckForUpdates(manual: false)); });
 
         _allowVisible = !(startHidden || S.StartMinimized) || !S.SetupDone;   // first run always shows the window + wizard
         if (!_allowVisible) CreateHandle();
@@ -111,6 +119,9 @@ public sealed partial class MainForm : Form
         var right = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, WrapContents = false, Margin = new Padding(0) };
         _pill.Margin = new Padding(0, 0, 10, 0);
         right.Controls.Add(_pill);
+        _updateBtn.Visible = false; _updateBtn.Margin = new Padding(0, 0, 8, 0);
+        _updateBtn.Click += (_, _) => ShowUpdate();
+        right.Controls.Add(_updateBtn);
         _pauseBtn.Click += (_, _) => SetEnabled(!S.Enabled);
         right.Controls.Add(_pauseBtn);
         var wiz = Theme.Button("Setup wizard"); wiz.Margin = new Padding(0);
@@ -340,6 +351,37 @@ public sealed partial class MainForm : Form
         _pauseBtn.Text = S.Enabled ? "Pause" : "Resume";
     }
 
+    // =====================================================================  updates
+
+    async Task CheckForUpdates(bool manual)
+    {
+        if (manual) SetStatus("Checking for updates…");
+        try
+        {
+            var u = await UpdateCheck.FetchAsync();
+            if (u == null) { if (manual) SetStatus($"KennelBridge {UpdateCheck.CurrentText} is the newest version."); return; }
+            _update = u;
+            _updateBtn.Text = $"Update to {u.Version}";
+            _updateBtn.Visible = true;
+            if (manual) { ShowUpdate(); return; }
+            if (S.UpdateNotifiedVersion != u.Version)
+            {
+                S.UpdateNotifiedVersion = u.Version; S.Save();
+                Activity($"KennelBridge {u.Version} is available (you have {UpdateCheck.CurrentText}). Click 'Update to {u.Version}' in the header.", flash: false);
+                try { _tray.ShowBalloonTip(8000, $"KennelBridge {u.Version} is available", "Click to see what changed and download it.", ToolTipIcon.Info); } catch { }
+            }
+        }
+        catch (Exception ex) { if (manual) SetStatus("Could not check for updates: " + ex.Message); }
+    }
+
+    void ShowUpdate()
+    {
+        if (_update == null) return;
+        ShowWindow();
+        using var d = new UpdateDialog(_update);
+        d.ShowDialog(this);
+    }
+
     void RunWizard(SetupWizard.Page? startAt = null)
     {
         UnregisterHotkeys();
@@ -425,7 +467,7 @@ public sealed partial class MainForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        _uiTimer.Stop(); _flashTimer.Stop();
+        _uiTimer.Stop(); _flashTimer.Stop(); _updateTimer.Stop();
         ShutdownHotkeys();
         ShutdownOverlay();
         ShutdownFiles();

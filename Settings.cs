@@ -56,6 +56,7 @@ public sealed class Settings
     public bool SetupDone { get; set; }
     public int WindowWidth { get; set; }
     public int WindowHeight { get; set; }
+    public string UpdateNotifiedVersion { get; set; } = "";   // the tray balloon is shown once per new version
 
     // ---- hotkeys ----
     public bool HotkeysEnabled { get; set; } = true;

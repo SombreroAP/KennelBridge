@@ -46,6 +46,15 @@ the ones you want.
 running in the tray; the amber icon flashes green on activity. **Pause** in the header stops every
 bridge at once.
 
+## Updates
+
+KennelBridge checks GitHub for a newer release a few seconds after it starts and every six hours.
+When one is out, an amber **Update available** button appears in the header and the tray icon shows
+a balloon once; the button opens what changed with a Download button. **Check for updates…** in the
+tray menu runs the check by hand. Nothing is installed automatically: download the new exe, close
+KennelBridge and replace the old one on both PCs. Every version is listed in
+[CHANGELOG.md](CHANGELOG.md) and at https://kennel.gg/bridge/changelog/.
+
 ## Ports
 
 | Port | Used for |
