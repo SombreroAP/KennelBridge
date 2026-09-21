@@ -1,0 +1,6 @@
+bin/
+obj/
+dist/
+.claude/
+# session notes with local paths, kept out of any public repo
+CLAUDE.md
