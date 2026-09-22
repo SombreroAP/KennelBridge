@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.0.2
+- **Audio: "only one usage of each socket address" fixed.** When the audio link failed to start part-way (the other PC not up yet, a device missing), the half-started session was dropped instead of disposed, so its receiver kept the audio port and every retry failed with that error. The start, stop and restart paths now match AudioBridge's: a failed session is disposed, and start and stop wait for each other so a new socket is never bound before the old one is closed.
+
 ## 1.0.1
 - **Update notifications.** KennelBridge checks GitHub for a newer release a few seconds after it starts and every six hours after that. When one is out, an amber **Update available** button appears in the header, the tray icon shows a balloon once per version, and the button opens a window with what changed, a Download button and a link to the changelog. **Check for updates…** in the tray menu runs the check by hand.
 - **Changelog.** This file, published at kennel.gg/bridge/changelog and shown in the app's update window.

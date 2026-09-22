@@ -172,6 +172,11 @@ public sealed partial class MainForm
         else UpdateAudioStatus();
     }
 
+    // One gate for start, stop and restart: the receiver binds the audio port, so a stop must have
+    // finished disposing the old socket before a start binds a new one, or Windows answers
+    // "only one usage of each socket address".
+    readonly SemaphoreSlim _audioGate = new(1, 1);
+
     async Task RestartAudio()
     {
         await StopAudio("settings changed, restarting");
@@ -185,9 +190,13 @@ public sealed partial class MainForm
         var dest = AudioDestination();
         if (dest == null) { _audioError = "No other PC set - pick it on the Connection page."; UpdateAudioStatus(); return; }
         _audioStarting = true;
+        UpdateAudioStatus();
+        await _audioGate.WaitAsync();
+        BridgeSession? session = null;
         try
         {
-            var session = new BridgeSession(AudioSettings(), _virtualMic);
+            if (_audioSession != null) return;
+            session = new BridgeSession(AudioSettings(), _virtualMic);
             session.Failed += msg => { if (IsHandleCreated) BeginInvoke(() => { _audioError = msg; Activity("Audio: " + msg, flash: false); }); };
             await session.StartAsync(dest);
             _audioSession = session;
@@ -197,23 +206,30 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
+            // Same as AudioBridge's MainViewModel: a session that failed part-way still owns the
+            // receiver socket (and maybe a device), so it must be disposed, not dropped.
+            if (session != null) { try { await session.DisposeAsync(); } catch { } }
             _audioError = ex.Message;
             _audioRetryUtc = DateTime.UtcNow.AddSeconds(manual ? 3600 : 30);   // auto mode retries later (device unplugged, peer asleep); a manual failure waits for the user
             Activity("Audio: could not start - " + ex.Message, flash: false);
         }
-        finally { _audioStarting = false; UpdateAudioStatus(); }
+        finally { _audioGate.Release(); _audioStarting = false; UpdateAudioStatus(); }
     }
 
     async Task StopAudio(string why)
     {
-        var s = _audioSession;
-        _audioSession = null;
-        if (s != null)
+        await _audioGate.WaitAsync();
+        try
         {
-            try { await s.DisposeAsync(); } catch { }
-            Activity($"Audio: {why}.", flash: false);
+            var s = _audioSession;
+            _audioSession = null;
+            if (s != null)
+            {
+                try { await s.DisposeAsync(); } catch { }
+                Activity($"Audio: {why}.", flash: false);
+            }
         }
-        UpdateAudioStatus();
+        finally { _audioGate.Release(); UpdateAudioStatus(); }
     }
 
     /// <summary>Once a second: live stats, and a retry when auto mode failed earlier.</summary>
@@ -246,6 +262,6 @@ public sealed partial class MainForm
     void ShutdownAudio()
     {
         var s = _audioSession; _audioSession = null;
-        if (s != null) { try { s.DisposeAsync().AsTask().Wait(2000); } catch { } }
+        if (s != null) { try { s.DisposeAsync().AsTask().Wait(3000); } catch { } }
     }
 }
