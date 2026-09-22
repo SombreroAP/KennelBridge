@@ -1,7 +1,7 @@
 // 3D controller for the overlay. Two sources:
 //   built-in : an Xbox-style pad built from primitives (no files needed)
 //   model    : a glTF/GLB from the models folder (?model=name.glb), with an optional name.json mapping
-// Exposes Pad3D.create(parent, opts) -> { update(g), canvas }
+// Exposes Pad3D.create(parent, opts) -> { update(g), setModel(name), dispose(), canvas }
 (() => {
   const T = window.THREE;
   const XB = { A: 0x1000, B: 0x2000, X: 0x4000, Y: 0x8000, LB: 0x100, RB: 0x200, UP: 1, DOWN: 2, LEFT: 4, RIGHT: 8, START: 0x10, BACK: 0x20, LS: 0x40, RS: 0x80, GUIDE: 0x400 };
@@ -30,9 +30,10 @@
     const pad = new T.Group(); scene.add(pad);
     pad.rotation.x = -0.72;                      // lie it down like a pad on a desk, seen from above-front
 
-    let g = null, animate = () => { };
+    let g = null, animate = () => { }, alive = true;
     const t0 = performance.now();
     function frame() {
+      if (!alive) return;
       animate(g ? g[0] : 0, g);
       if (o.spin) pad.rotation.y = Math.sin((performance.now() - t0) / 2500) * 0.35;
       renderer.render(scene, cam);
@@ -53,7 +54,9 @@
     }
     setModel(o.model || '');
 
-    return { update(state) { g = state; }, setModel, canvas: renderer.domElement };
+    // dispose: stop the render loop and free the GL context, so the live page can swap overlays in place
+    return { update(state) { g = state; }, setModel, canvas: renderer.domElement,
+      dispose() { alive = false; try { renderer.dispose(); renderer.forceContextLoss && renderer.forceContextLoss(); } catch { } renderer.domElement.remove(); } };
 
     // =====================================================================================
     // built-in pad

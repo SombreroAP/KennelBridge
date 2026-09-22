@@ -27,7 +27,7 @@ the ones you want.
 3. Then per bridge:
    - **Input Overlay** (streaming PC): pick an overlay, **Copy live URL**, and in OBS add one Browser
      source with it (any size, untick "Shutdown source when not visible"). Whatever you select in the
-     app shows in OBS. Each overlay also has a fixed URL for a source that should not follow the
+     app shows in OBS at once, no refresh needed. Each overlay also has a fixed URL for a source that should not follow the
      selection. `&demo=1` shows fake input while positioning.
    - **Audio**: tick *Audio bridge on* on both PCs, pick the playback device (gaming PC: the one your
      games play through; streaming PC: your headphones) and, on the streaming PC, the microphone. The

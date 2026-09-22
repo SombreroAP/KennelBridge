@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.0.3
+- **Switch overlays from the app with no OBS refresh.** The live URL page now rebuilds itself in place when you pick a different overlay, look, theme, style, scale, plate or history option in the app: the WebSocket, the browser source and OBS all stay as they were. Before, the page navigated to a new address on every change, which OBS did not always follow (and the custom-keys overlay could reload endlessly because of the `|` in its address). The last known input state is shown on the new overlay immediately, and the 3D controller frees its renderer when swapped out.
+
 ## 1.0.2
 - **Audio: "only one usage of each socket address" fixed.** When the audio link failed to start part-way (the other PC not up yet, a device missing), the half-started session was dropped instead of disposed, so its receiver kept the audio port and every retry failed with that error. The start, stop and restart paths now match AudioBridge's: a failed session is disposed, and start and stop wait for each other so a new socket is never bound before the old one is closed.
 

@@ -1,30 +1,14 @@
 (() => {
-  const q = new URLSearchParams(location.search);
-  // /live : one URL for OBS; the app tells us which overlay to show and we reload with its parameters
+  // /live : one URL for OBS. The app tells us which overlay to show over the WebSocket and we rebuild the
+  // page in place - the socket, the browser source and OBS all stay as they are, so switching in the app
+  // shows up in OBS at once without a refresh.
   const live = location.pathname === '/live';
-  const fit = live || q.get('fit') === '1';
-  const overlay = q.get('overlay') || (live ? 'none' : 'wasd');
-  // ready-made looks (?look=): theme + style in one word. Explicit theme=/style= still win.
   const LOOKS = { classic: ['white', 'outline'], glass: ['white', 'glass'], dark: ['amber', 'solid'], neon: ['blue', 'neon'], paper: ['amber', 'paper'] };
-  const look = LOOKS[q.get('look') || ''] || null;
-  const theme = q.get('theme') || (look ? look[0] : 'amber');
-  const scale = parseFloat(q.get('scale') || '1');
-  const plate = q.get('plate') === '1';
-  const style = q.get('style') || (look ? look[1] : theme === 'white' ? 'outline' : 'solid');   // solid | outline | glass | neon | paper
-  const padForce = q.get('pad') || '';                                          // ps | xbox: force button labels
-  const withHistory = q.get('history') === '1' || overlay === 'history';
-  const histMax = Math.max(1, Math.min(20, parseInt(q.get('hist') || '8')));
-  const histTtl = Math.max(500, parseFloat(q.get('histttl') || '4') * 1000);
-  document.body.classList.add('s-' + style);
   const themes = { amber: '#C99A3B', white: '#FFFFFF', green: '#4CBE5A', pink: '#FF5FA2', blue: '#4DA3FF', olive: '#8C9A5B' };
-  const accent = q.get('color') ? '#' + q.get('color').replace('#', '') : (themes[theme] || themes.amber);
-  document.documentElement.style.setProperty('--accent', accent);
-  if (theme === 'white') document.documentElement.style.setProperty('--pressed-text', '#0B0E10');
 
+  function el(tag, cls) { const d = document.createElement(tag); if (cls) d.className = cls; return d; }
   const root = document.getElementById('root');
-  root.style.transform = `scale(${scale})`;
-  if (plate) root.classList.add('plate');
-  const main = el('div', 'main');
+  const status = el('div', 'status'); document.body.appendChild(status);
 
   // ---------- keyboard layouts (vk = Windows virtual-key code; vks = any of) ----------
   const K = (l, vk, w, cls) => ({ l, vks: Array.isArray(vk) ? vk : [vk], w: w || 1, cls: cls || '' });
@@ -81,7 +65,22 @@
     }));
   }
 
-  const keyEls = [];
+  // Labels follow the pad: the capture side tags the state "xbox", "ps" or "hid"; ?pad=ps|xbox overrides.
+  const LABELS = {
+    xbox: { A: 'A', B: 'B', X: 'X', Y: 'Y', LB: 'LB', RB: 'RB', LT: 'LT', RT: 'RT', BACK: 'BACK', START: 'START', LS: 'LS', RS: 'RS', GUIDE: 'Guide' },
+    ps: { A: '✕', B: '○', X: '□', Y: '△', LB: 'L1', RB: 'R1', LT: 'L2', RT: 'R2', BACK: 'CREATE', START: 'OPTIONS', LS: 'L3', RS: 'R3', GUIDE: 'PS' },
+    ps4: { A: '✕', B: '○', X: '□', Y: '△', LB: 'L1', RB: 'R1', LT: 'L2', RT: 'R2', BACK: 'SHARE', START: 'OPTIONS', LS: 'L3', RS: 'R3', GUIDE: 'PS' },
+  };
+  const modelFor = kind => kind === 'ps4' ? 'dualshock4.glb' : kind === 'ps' ? 'dualsense.glb' : 'xbox.glb';   // ?model=auto: bundled model for the pad in use
+  const PADBITS = [[0x1000, 'A'], [0x2000, 'B'], [0x4000, 'X'], [0x8000, 'Y'], [0x100, 'LB'], [0x200, 'RB'], [1, '▲'], [2, '▼'], [4, '◀'], [8, '▶'], [0x10, 'START'], [0x20, 'BACK'], [0x40, 'LS'], [0x80, 'RS'], [0x400, 'GUIDE']];
+  const MBIT = { 1: 1, 2: 2, 4: 4, 5: 8, 6: 16 };   // VK_LBUTTON.. VK_XBUTTON2 -> bit in the mouse mask
+
+  // ---------- per-overlay state: everything build() creates and apply() drives ----------
+  let current = null;                       // the query string the page is built from
+  let q, fit = false, overlay = 'none', theme = 'amber', style = 'solid', padForce = '', withHistory = false, histMax = 8, histTtl = 4000, accent = themes.amber;
+  let keyEls = [], mouse = null, pad = null, pad3d = null, autoModel = false, hist = null, padKind = 'xbox', demoTimer = null;
+  const L = () => LABELS[padKind] || LABELS.xbox;
+
   function buildKeyboard(layout) {
     const kb = el('div', 'kb');
     for (const row of layout) {
@@ -97,8 +96,6 @@
     return kb;
   }
 
-  // ---------- mouse ----------
-  let mouse = null;
   function buildMouse() {
     const m = el('div', 'mouse');
     m.innerHTML = `<div class="body"><div class="btn l"></div><div class="btn r"></div><div class="wheel"><div class="arr up">▲</div><div class="arr dn">▼</div></div>
@@ -107,17 +104,6 @@
     return m;
   }
 
-  // ---------- controller ----------
-  // Labels follow the pad: the capture side tags the state "xbox", "ps" or "hid"; ?pad=ps|xbox overrides.
-  const LABELS = {
-    xbox: { A: 'A', B: 'B', X: 'X', Y: 'Y', LB: 'LB', RB: 'RB', LT: 'LT', RT: 'RT', BACK: 'BACK', START: 'START', LS: 'LS', RS: 'RS', GUIDE: 'Guide' },
-    ps: { A: '✕', B: '○', X: '□', Y: '△', LB: 'L1', RB: 'R1', LT: 'L2', RT: 'R2', BACK: 'CREATE', START: 'OPTIONS', LS: 'L3', RS: 'R3', GUIDE: 'PS' },
-    ps4: { A: '✕', B: '○', X: '□', Y: '△', LB: 'L1', RB: 'R1', LT: 'L2', RT: 'R2', BACK: 'SHARE', START: 'OPTIONS', LS: 'L3', RS: 'R3', GUIDE: 'PS' },
-  };
-  let padKind = padForce === 'ps' || padForce === 'ps4' ? padForce : 'xbox';
-  const L = () => LABELS[padKind] || LABELS.xbox;
-  let pad = null, pad3d = null, autoModel = false;
-  const modelFor = kind => kind === 'ps4' ? 'dualshock4.glb' : kind === 'ps' ? 'dualsense.glb' : 'xbox.glb';   // ?model=auto: bundled model for the pad in use
   function buildPad() {
     const p = el('div', 'pad');
     const B = (cls, x, y, id) => `<div class="b ${cls}" style="left:${x}px;top:${y}px" data-b="${id}"></div>`;
@@ -148,37 +134,99 @@
     pad.el.classList.toggle('ps', padKind === 'ps' || padKind === 'ps4');
   }
 
-  function el(tag, cls) { const d = document.createElement(tag); if (cls) d.className = cls; return d; }
-
-  // ---------- compose ----------
-  if (overlay === 'wasd') { main.appendChild(buildKeyboard(WASD)); main.appendChild(buildMouse()); }
-  else if (overlay === 'wasd-mini') { main.appendChild(buildKeyboard(WASD_MINI)); }
-  else if (overlay === 'arrows') { main.appendChild(buildKeyboard(ARROWS)); main.appendChild(buildMouse()); }
-  else if (overlay === 'keyboard') { main.appendChild(buildKeyboard(FULL)); main.appendChild(buildKeyboard(ARROWS)); }
-  else if (overlay === 'keyboard+mouse') { main.appendChild(buildKeyboard(FULL)); main.appendChild(buildKeyboard(ARROWS)); main.appendChild(buildMouse()); }
-  else if (overlay === 'numpad') { main.appendChild(buildKeyboard(NUMPAD)); }
-  else if (overlay === 'mouse') { main.appendChild(buildMouse()); }
-  else if (overlay === 'custom') { main.appendChild(buildKeyboard(customLayout(q.get('keys') || 'W,A,S,D'))); if (q.get('mouse') === '1') main.appendChild(buildMouse()); }
-  else if (overlay === 'controller') { main.appendChild(buildPad()); }
-  else if (overlay === 'controller3d') {
-    let ok = false;
-    const m = q.get('model') || '';
-    autoModel = m === 'auto';
-    try { if (window.THREE && window.Pad3D) { pad3d = Pad3D.create(main, { accent, theme, style, size: parseInt(q.get('size') || '480'), spin: q.get('spin') === '1', mono: q.get('mono') === '1', model: autoModel ? modelFor(padKind) : m }); ok = !!pad3d; } } catch (e) { console.error(e); }
-    if (!ok) main.appendChild(buildPad());   // no WebGL: fall back to the flat pad
+  // fit=1 / live: scale the overlay to the browser source instead of a fixed scale
+  function fitToWindow() {
+    if (!fit || !root.firstElementChild) return;
+    const w = root.offsetWidth, h = root.offsetHeight;
+    if (!w || !h) return;
+    root.style.transform = `scale(${Math.min(window.innerWidth / w, window.innerHeight / h)})`;
   }
-  else if (overlay === 'all') { main.appendChild(buildKeyboard(WASD)); main.appendChild(buildMouse()); main.appendChild(buildPad()); }
-  if (main.childElementCount) root.appendChild(main);
+  window.addEventListener('resize', fitToWindow);
 
-  // ---------- history strip: one chip per press, newest on the right, fading out after histTtl ----------
-  let hist = null;
-  if (withHistory) {
-    hist = { el: el('div', 'hist'), items: [], prevKeys: new Set(), prevMb: 0, prevBt: 0, prevLt: false, prevRt: false };
-    hist.el.style.setProperty('--n', histMax);
-    root.appendChild(hist.el);
-    root.classList.add('col');
+  // ---------- build (and rebuild) the page from a query string ----------
+  function build(search) {
+    current = search;
+    q = new URLSearchParams(search);
+    // tear down whatever the previous build made
+    if (demoTimer) { clearInterval(demoTimer); demoTimer = null; }
+    if (pad3d && pad3d.dispose) { try { pad3d.dispose(); } catch (e) { } }
+    pad3d = null; pad = null; mouse = null; hist = null; keyEls = []; autoModel = false;
+    root.innerHTML = ''; root.className = ''; root.style.transform = '';
+    for (const c of [...document.body.classList]) if (c.startsWith('s-')) document.body.classList.remove(c);
+    document.documentElement.style.removeProperty('--pressed-text');
+
+    fit = live || q.get('fit') === '1';
+    overlay = q.get('overlay') || (live ? 'none' : 'wasd');
+    // ready-made looks (?look=): theme + style in one word. Explicit theme=/style= still win.
+    const look = LOOKS[q.get('look') || ''] || null;
+    theme = q.get('theme') || (look ? look[0] : 'amber');
+    const scale = parseFloat(q.get('scale') || '1');
+    const plate = q.get('plate') === '1';
+    style = q.get('style') || (look ? look[1] : theme === 'white' ? 'outline' : 'solid');   // solid | outline | glass | neon | paper
+    padForce = q.get('pad') || '';                                          // ps | xbox: force button labels
+    withHistory = q.get('history') === '1' || overlay === 'history';
+    histMax = Math.max(1, Math.min(20, parseInt(q.get('hist') || '8')));
+    histTtl = Math.max(500, parseFloat(q.get('histttl') || '4') * 1000);
+    document.body.classList.add('s-' + style);
+    accent = q.get('color') ? '#' + q.get('color').replace('#', '') : (themes[theme] || themes.amber);
+    document.documentElement.style.setProperty('--accent', accent);
+    if (theme === 'white') document.documentElement.style.setProperty('--pressed-text', '#0B0E10');
+    padKind = padForce === 'ps' || padForce === 'ps4' ? padForce : (state.g && typeof state.g[7] === 'string' && (state.g[7] === 'ps' || state.g[7] === 'ps4') ? state.g[7] : 'xbox');
+
+    root.style.transform = `scale(${scale})`;
+    if (plate) root.classList.add('plate');
+    const main = el('div', 'main');
+
+    if (overlay === 'wasd') { main.appendChild(buildKeyboard(WASD)); main.appendChild(buildMouse()); }
+    else if (overlay === 'wasd-mini') { main.appendChild(buildKeyboard(WASD_MINI)); }
+    else if (overlay === 'arrows') { main.appendChild(buildKeyboard(ARROWS)); main.appendChild(buildMouse()); }
+    else if (overlay === 'keyboard') { main.appendChild(buildKeyboard(FULL)); main.appendChild(buildKeyboard(ARROWS)); }
+    else if (overlay === 'keyboard+mouse') { main.appendChild(buildKeyboard(FULL)); main.appendChild(buildKeyboard(ARROWS)); main.appendChild(buildMouse()); }
+    else if (overlay === 'numpad') { main.appendChild(buildKeyboard(NUMPAD)); }
+    else if (overlay === 'mouse') { main.appendChild(buildMouse()); }
+    else if (overlay === 'custom') { main.appendChild(buildKeyboard(customLayout(q.get('keys') || 'W,A,S,D'))); if (q.get('mouse') === '1') main.appendChild(buildMouse()); }
+    else if (overlay === 'controller') { main.appendChild(buildPad()); }
+    else if (overlay === 'controller3d') {
+      let ok = false;
+      const m = q.get('model') || '';
+      autoModel = m === 'auto';
+      try { if (window.THREE && window.Pad3D) { pad3d = Pad3D.create(main, { accent, theme, style, size: parseInt(q.get('size') || '480'), spin: q.get('spin') === '1', mono: q.get('mono') === '1', model: autoModel ? modelFor(padKind) : m }); ok = !!pad3d; } } catch (e) { console.error(e); }
+      if (!ok) main.appendChild(buildPad());   // no WebGL: fall back to the flat pad
+    }
+    else if (overlay === 'all') { main.appendChild(buildKeyboard(WASD)); main.appendChild(buildMouse()); main.appendChild(buildPad()); }
+    if (main.childElementCount) root.appendChild(main);
+
+    // history strip: one chip per press, newest on the right, fading out after histTtl
+    if (withHistory) {
+      hist = { el: el('div', 'hist'), items: [], prevKeys: new Set(), prevMb: 0, prevBt: 0, prevLt: false, prevRt: false };
+      hist.el.style.setProperty('--n', histMax);
+      root.appendChild(hist.el);
+      root.classList.add('col');
+    }
+
+    status.textContent = live && overlay === 'none' ? 'waiting for the app…' : '';
+    if (fit) { root.style.transform = 'scale(1)'; fitToWindow(); setTimeout(fitToWindow, 300); }
+    if (live) { try { history.replaceState(null, '', '/live' + (search ? '?' + search : '')); } catch (e) { } }
+
+    // demo mode (?demo=1): fake input so you can position the source in OBS
+    if (q.get('demo') === '1') {
+      let t = 0;
+      const seq = [[87], [87, 65], [65], [83], [83, 68], [68], [32], [160, 87], [87], [], [38], [38, 39], [39], [], [104], [100], [102], [], [81], [69], [82], [70]];
+      demoTimer = setInterval(() => {
+        t++;
+        const k = seq[Math.floor(t / 6) % seq.length];
+        const mb = (t % 24 < 6 ? 1 : 0) | (t % 40 > 33 ? 2 : 0) | (t % 60 > 55 ? 8 : 0);
+        const a = t / 20;
+        const dx = Math.round(Math.cos(a) * 12), dy = Math.round(Math.sin(a) * 12);
+        const w = t % 30 === 0 ? 1 : t % 30 === 15 ? -1 : 0;
+        const bt = (t % 24 < 6 ? 0x1000 : 0) | (t % 48 > 40 ? 0x100 : 0) | (t % 36 > 30 ? 0x2 : 0) | (t % 90 > 84 ? 0x2000 : 0);
+        const g = [bt, Math.round((Math.sin(a) + 1) * 127), t % 50 > 30 ? 255 : 0, Math.cos(a).toFixed(2), Math.sin(a).toFixed(2), 0, 0, padForce || (q.get('demo_pad') || 'xbox')];
+        apply({ k, m: [mb, dx, dy, w], g });
+      }, 50);
+      status.textContent = '';
+    } else if (state.k) apply(state);   // show the last known state straight away on the new overlay
   }
-  const PADBITS = [[0x1000, 'A'], [0x2000, 'B'], [0x4000, 'X'], [0x8000, 'Y'], [0x100, 'LB'], [0x200, 'RB'], [1, '▲'], [2, '▼'], [4, '◀'], [8, '▶'], [0x10, 'START'], [0x20, 'BACK'], [0x40, 'LS'], [0x80, 'RS'], [0x400, 'GUIDE']];
+
   function histPush(labels) {
     if (!labels.length) return;
     const chip = el('div', 'chip');
@@ -207,20 +255,7 @@
     histPush(labels);
   }
 
-  const status = el('div', 'status'); document.body.appendChild(status);
-  if (live && overlay === 'none') status.textContent = 'waiting for the app…';
-
-  // fit=1 / live: scale the overlay to the browser source instead of a fixed scale
-  function fitToWindow() {
-    if (!fit || !root.firstElementChild) return;
-    const w = root.offsetWidth, h = root.offsetHeight;
-    if (!w || !h) return;
-    root.style.transform = `scale(${Math.min(window.innerWidth / w, window.innerHeight / h)})`;
-  }
-  if (fit) { root.style.transform = 'scale(1)'; fitToWindow(); window.addEventListener('resize', fitToWindow); setTimeout(fitToWindow, 300); }
-
   // ---------- state ----------
-  const MBIT = { 1: 1, 2: 2, 4: 4, 5: 8, 6: 16 };   // VK_LBUTTON.. VK_XBUTTON2 -> bit in the mouse mask
   let state = { k: [], m: [0, 0, 0, 0], g: 0 };
   function apply(s) {
     state = s;
@@ -272,33 +307,20 @@
   }
   requestAnimationFrame(frame);
 
-  // ---------- demo mode (?demo=1): fake input so you can position the source in OBS ----------
-  if (q.get('demo') === '1') {
-    let t = 0;
-    const seq = [[87], [87, 65], [65], [83], [83, 68], [68], [32], [160, 87], [87], [], [38], [38, 39], [39], [], [104], [100], [102], [], [81], [69], [82], [70]];
-    setInterval(() => {
-      t++;
-      const k = seq[Math.floor(t / 6) % seq.length];
-      const mb = (t % 24 < 6 ? 1 : 0) | (t % 40 > 33 ? 2 : 0) | (t % 60 > 55 ? 8 : 0);
-      const a = t / 20;
-      const dx = Math.round(Math.cos(a) * 12), dy = Math.round(Math.sin(a) * 12);
-      const w = t % 30 === 0 ? 1 : t % 30 === 15 ? -1 : 0;
-      const bt = (t % 24 < 6 ? 0x1000 : 0) | (t % 48 > 40 ? 0x100 : 0) | (t % 36 > 30 ? 0x2 : 0) | (t % 90 > 84 ? 0x2000 : 0);
-      const g = [bt, Math.round((Math.sin(a) + 1) * 127), t % 50 > 30 ? 255 : 0, Math.cos(a).toFixed(2), Math.sin(a).toFixed(2), 0, 0, padForce || (q.get('demo_pad') || 'xbox')];
-      apply({ k, m: [mb, dx, dy, w], g });
-    }, 50);
-    status.textContent = '';
-    return;
-  }
+  // first build from the page's own URL (the /live page starts empty and waits for the app's config)
+  build(location.search.slice(1));
+  if (q.get('demo') === '1') return;
 
   // ---------- websocket ----------
+  // One connection for the life of the page. The app pushes {"cfg": "<query>"} on connect and whenever the
+  // selection changes; the live page rebuilds itself from it. Fixed-URL pages ignore cfg.
   let lastMsg = 0;
   function connect() {
     const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
     ws.onmessage = e => {
       let d; try { d = JSON.parse(e.data); } catch { return; }
       if (typeof d.cfg === 'string') {
-        if (live && d.cfg && d.cfg !== location.search.slice(1)) location.replace('/live?' + d.cfg);
+        if (live && d.cfg && d.cfg !== current) build(d.cfg);
         return;
       }
       lastMsg = performance.now(); apply(d);
