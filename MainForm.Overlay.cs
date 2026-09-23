@@ -63,7 +63,7 @@ public sealed partial class MainForm
     {
         var col = Rows(182, 172, -1);
 
-        var srv = new Card("Overlay server") { Dock = DockStyle.Fill, Hint = "streaming PC" };
+        var srv = new Card("Serve for OBS") { Dock = DockStyle.Fill, Hint = "streaming PC" };
         var sT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2 };
         sT.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); sT.ColumnStyles.Add(Cpx(90)); sT.ColumnStyles.Add(Cpct(100));
         sT.RowStyles.Add(Px(40)); sT.RowStyles.Add(Pct(100));
@@ -80,7 +80,7 @@ public sealed partial class MainForm
         srv.Controls.Add(sT);
         col.Controls.Add(srv, 0, 0);
 
-        var inp = new Card("Inputs") { Dock = DockStyle.Fill, Hint = "gaming PC" };
+        var inp = new Card("Capture") { Dock = DockStyle.Fill, Hint = "gaming PC" };
         var iT = Rows(32, -1);
         _ovCapture.Margin = new Padding(0, 4, 0, 0);
         _ovCapture.CheckedChanged += (_, _) => { if (_loadingUi) return; S.OverlayCapture = _ovCapture.Checked; S.Save(); ApplyOverlayRuntime(); };
@@ -90,7 +90,7 @@ public sealed partial class MainForm
         inp.Controls.Add(iT);
         col.Controls.Add(inp, 0, 1);
 
-        var ov = new Card("Overlays for OBS") { Dock = DockStyle.Fill, Hint = "Sources  →  +  →  Browser  →  paste the URL" };
+        var ov = new Card("Overlay") { Dock = DockStyle.Fill, Hint = "OBS: Browser source, paste the live URL" };
         var oT = Rows(-1, 42, 42, 46, 42, 40, 30);
         StyleList(_ovList);
         _ovList.Dock = DockStyle.Fill;

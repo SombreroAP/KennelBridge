@@ -2,6 +2,10 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.1.0
+- **A new look.** Redesigned in Claude Design and rebuilt to match: a left rail with an icon and a live on/off dot for each bridge, the connection summary and Pause at the bottom of the rail, and the page's own title and one-line description at the top instead of the big banner. Settings sit on flat rounded surfaces with hairline dividers, tick boxes are now on/off switches, buttons are rounded and quieter, lists have roomier rows with a clear selection, and the title bar matches the window on Windows 11.
+- Less text: the explainer cards on the Connection and Audio pages are gone, card headings no longer repeat the page name, and the remaining help lines are one sentence.
+
 ## 1.0.3
 - **Switch overlays from the app with no OBS refresh.** The live URL page now rebuilds itself in place when you pick a different overlay, look, theme, style, scale, plate or history option in the app: the WebSocket, the browser source and OBS all stay as they were. Before, the page navigated to a new address on every change, which OBS did not always follow (and the custom-keys overlay could reload endlessly because of the `|` in its address). The last known input state is shown on the new overlay immediately, and the 3D controller frees its renderer when swapped out.
 

@@ -96,7 +96,7 @@ public sealed partial class MainForm
         recv.Controls.Add(rT);
         col.Controls.Add(recv, 0, 1);
 
-        var list = new Card("Transfers") { Dock = DockStyle.Fill, Hint = "a recording is sent once OBS has finished writing it" };
+        var list = new Card("Transfers") { Dock = DockStyle.Fill };
         var lT = Rows(-1, 40);
         StyleList(_transfers);
         _transfers.Dock = DockStyle.Fill;
@@ -105,7 +105,7 @@ public sealed partial class MainForm
         lT.Controls.Add(_transfers, 0, 0);
         var lb = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 6, 0, 0) };
         lb.Controls.Add(On(Theme.Button("Clear finished", minWidth: 110), () => { foreach (var kv in _transferRows.ToList()) if (kv.Value.Tag is FileTransfer t && t.Status is "done" or "skipped" or "failed") { _transfers.Items.Remove(kv.Value); _transferRows.Remove(kv.Key); } }));
-        lb.Controls.Add(Wrapped("Delivered files are remembered, so nothing is sent twice. A file is queued when it stops growing for 10 s and nothing has it open for writing."));
+        lb.Controls.Add(Wrapped("Sent files are remembered, so nothing goes twice."));
         lT.Controls.Add(lb, 0, 1);
         list.Controls.Add(lT);
         col.Controls.Add(list, 0, 2);

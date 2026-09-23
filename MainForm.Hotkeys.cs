@@ -27,7 +27,7 @@ public sealed partial class MainForm
     {
         var col = Rows(132, -1);
 
-        var top = new Card("Hotkey bridge") { Dock = DockStyle.Fill };
+        var top = new Card("Mode") { Dock = DockStyle.Fill };
         var tT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
         tT.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); tT.ColumnStyles.Add(Cpct(100));
         tT.RowStyles.Add(Px(40));
@@ -63,7 +63,7 @@ public sealed partial class MainForm
         pb.Controls.Add(On(Theme.Button("Test on other PC"), TestSelected));
         pb.Controls.Add(On(Theme.Button("Discord…"), () => RunWizard(SetupWizard.Page.Discord)));
         pT.Controls.Add(pb, 0, 1);
-        pT.Controls.Add(Wrapped("Keys, Middle, Mouse 4 and Mouse 5 all work. Hold rows keep the key down on the other PC for as long as you hold it here. F13–F24 are ideal keys for the other PC."), 0, 2);
+        pT.Controls.Add(Wrapped("Double-click a row to change it. F13–F24 are free on every PC, which makes them ideal targets."), 0, 2);
         _pressesCard.Controls.Add(pT);
         col.Controls.Add(_pressesCard, 0, 1);
         return col;

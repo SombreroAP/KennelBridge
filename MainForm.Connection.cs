@@ -22,12 +22,12 @@ public sealed partial class MainForm
     {
         var col = Rows(352, 162, -1);
 
-        var conn = new Card("Connection") { Dock = DockStyle.Fill, Hint = "shared by every bridge" };
+        var conn = new Card("Other PC") { Dock = DockStyle.Fill };
         var cT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 7 };
         cT.ColumnStyles.Add(Cpx(110)); cT.ColumnStyles.Add(Cpct(100));
         foreach (var h in new[] { 40, 36, 28, 36, 36, 44, 24 }) cT.RowStyles.Add(Px(h));
 
-        cT.Controls.Add(Theme.Label("This PC is the"), 0, 0);
+        cT.Controls.Add(Theme.Label("This PC"), 0, 0);
         var seg = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0, 3, 0, 3) };
         seg.ColumnStyles.Add(Cpct(50)); seg.ColumnStyles.Add(Cpct(50));
         foreach (var (b, r) in new[] { (_segGaming, PcRole.Gaming), (_segStreaming, PcRole.Streaming) })
@@ -73,7 +73,7 @@ public sealed partial class MainForm
         conn.Controls.Add(cT);
         col.Controls.Add(conn, 0, 0);
 
-        var opts = new Card("Options") { Dock = DockStyle.Fill };
+        var opts = new Card("Startup") { Dock = DockStyle.Fill };
         var oF = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
         _startWithWindows.CheckedChanged += (_, _) => { if (_loadingUi) return; try { SetStartWithWindows(_startWithWindows.Checked); } catch (Exception ex) { SetStatus("Could not change Start with Windows: " + ex.Message); } };
         _startMinimized.CheckedChanged += (_, _) => { if (_loadingUi) return; S.StartMinimized = _startMinimized.Checked; S.Save(); };
@@ -82,13 +82,7 @@ public sealed partial class MainForm
         opts.Controls.Add(oF);
         col.Controls.Add(opts, 0, 1);
 
-        var how = new Card("How the roles work") { Dock = DockStyle.Fill };
-        how.Controls.Add(Wrapped(
-            "Run KennelBridge on both PCs with the same passphrase and set one to Gaming PC and the other to Streaming PC. " +
-            "Each bridge then knows its direction: the gaming PC captures inputs and game audio and receives the microphone and finished recordings; " +
-            "the streaming PC shows overlays for OBS, plays game audio, sends the microphone and pushes recordings. " +
-            "Hotkeys go both ways. Every bridge has its own page with its own on/off switch."));
-        col.Controls.Add(how, 0, 2);
+        col.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Bg }, 0, 2);
         return col;
     }
 

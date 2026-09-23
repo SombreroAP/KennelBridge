@@ -25,7 +25,7 @@ public sealed partial class MainForm
     readonly Label _auStatus = Theme.Label("", muted: true);
     readonly Button _auStart = Theme.Button("Start now", primary: true);
     readonly Button _auStop = Theme.Button("Stop");
-    readonly Card _cableCard = new("Virtual microphone (gaming PC)");
+    readonly Card _cableCard = new("Virtual microphone");
     readonly Label _cableStatus = Theme.Label("", muted: true);
     readonly Label _auDirection = Theme.Label("", muted: true);
     List<AudioDeviceInfo> _renderDevices = new(), _captureDevices = new();
@@ -36,7 +36,7 @@ public sealed partial class MainForm
     {
         var col = Rows(332, 252, -1);
 
-        var main = new Card("Audio bridge") { Dock = DockStyle.Fill };
+        var main = new Card("Link") { Dock = DockStyle.Fill };
         var mT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 7 };
         mT.ColumnStyles.Add(Cpx(150)); mT.ColumnStyles.Add(Cpct(100));
         foreach (var h in new[] { 34, 26, 36, 36, 36, 44, 30 }) mT.RowStyles.Add(Px(h));
@@ -81,9 +81,7 @@ public sealed partial class MainForm
         var cT = Rows(40, -1, 40);
         _cableStatus.AutoSize = false; _cableStatus.Dock = DockStyle.Fill; _cableStatus.TextAlign = ContentAlignment.MiddleLeft;
         cT.Controls.Add(_cableStatus, 0, 0);
-        cT.Controls.Add(Wrapped("To make the streaming PC's microphone show up in games on this PC, Windows needs a virtual audio device. KennelBridge uses VB-CABLE: " +
-            "the incoming microphone is played into \"CABLE Input\" and you pick \"CABLE Output\" as your microphone in the game or Discord. " +
-            _virtualMic.Attribution + " Restart Windows after installing it."), 0, 1);
+        cT.Controls.Add(Wrapped("The streaming PC's microphone plays into CABLE Input here. In your game or Discord, pick CABLE Output as the microphone. " + _virtualMic.Attribution), 0, 1);
         var cb = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
         cb.Controls.Add(On(Theme.Button("Open vb-cable.com"), () => { try { Process.Start(new ProcessStartInfo(_virtualMic.InstallUri.ToString()) { UseShellExecute = true }); } catch { } }));
         cb.Controls.Add(On(Theme.Button("I've installed it - check again"), RefreshAudioDevices));
@@ -91,11 +89,7 @@ public sealed partial class MainForm
         _cableCard.Controls.Add(cT);
         col.Controls.Add(_cableCard, 0, 1);
 
-        var how = new Card("How it works") { Dock = DockStyle.Fill };
-        how.Controls.Add(Wrapped("Gaming PC: everything it plays (game, Discord, music) is loopback-recorded from the playback device chosen above and sent to the streaming PC, where it plays out of the headphones. " +
-            "Streaming PC: the microphone chosen above is sent to the gaming PC, where it comes out of CABLE Output as a normal mic. " +
-            "Both directions run at once over UDP on the audio port, uncompressed 48 kHz stereo 16-bit, so keep the two PCs on a wired LAN."));
-        col.Controls.Add(how, 0, 2);
+        col.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Bg }, 0, 2);
         return col;
     }
 

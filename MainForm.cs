@@ -42,7 +42,7 @@ public sealed partial class MainForm : Form
     readonly Label _status = Theme.Label("", muted: true);
     // pages
     readonly Panel _pages = new() { Dock = DockStyle.Fill, Margin = new Padding(0) };
-    readonly Dictionary<string, (Button nav, Control page)> _nav = new();
+    readonly Dictionary<string, (NavItem nav, Control page)> _nav = new();
     string _currentPage = "";
 
     bool _allowVisible, _reallyExit, _shownTrayTip, _loadingUi, _restoredSize, _wizardShown;
@@ -59,7 +59,7 @@ public sealed partial class MainForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96f, 96f);
         ApplyWindow(this);
-        ClientSize = new Size(1080, 820);
+        ClientSize = new Size(1120, 800);
         MinimumSize = new Size(940, 640);
         DoubleBuffered = true;
 
@@ -89,7 +89,7 @@ public sealed partial class MainForm : Form
         ApplyRuntime();
         Disc.Start();
 
-        _uiTimer.Tick += (_, _) => { RefreshPeers(); AudioTick(); };
+        _uiTimer.Tick += (_, _) => { RefreshPeers(); AudioTick(); RefreshRail(); };
         _uiTimer.Start();
         _flashTimer.Tick += (_, _) => { _flashTimer.Stop(); _lamp.BackColor = CardBorder; _lamp.Invalidate(); UpdateTray(); };
         _updateTimer.Tick += (_, _) => _ = CheckForUpdates(manual: false);
@@ -102,82 +102,109 @@ public sealed partial class MainForm : Form
 
     // =====================================================================  UI shell
 
+    readonly Label _pageTitle = new() { AutoSize = true, Font = Big, ForeColor = Fg, Margin = new Padding(0) };
+    readonly Label _pageSub = new() { AutoSize = true, Font = Body, ForeColor = Muted, Margin = new Padding(1, 4, 0, 0) };
+    readonly Label _railPeer = new() { AutoSize = false, Font = Small, ForeColor = Muted, Height = 22, Dock = DockStyle.Top, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+
+    static readonly Dictionary<string, (string glyph, string sub)> PageInfo = new()
+    {
+        [PageConnection] = ("\uE71B", "How this PC finds and talks to the other one. Every bridge uses it."),
+        [PageOverlay] = ("\uE7FC", "Pick an overlay here and OBS follows at once."),
+        [PageAudio] = ("\uE7F6", "Game audio to the headphones, the microphone back to the game."),
+        [PageHotkeys] = ("\uE765", "Press a key here and the other PC presses it too."),
+        [PageFiles] = ("\uE8B7", "Finished recordings copied from one PC to the other."),
+        [PageActivity] = ("\uE81C", "Everything the bridges did, newest first."),
+    };
+
     void BuildUi()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(10, 6, 10, 6), BackColor = Bg };
-        root.ColumnStyles.Add(Cpx(190)); root.ColumnStyles.Add(Cpct(100));
-        root.RowStyles.Add(Px(70)); root.RowStyles.Add(Pct(100)); root.RowStyles.Add(Px(34));
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(0), Margin = new Padding(0), BackColor = Bg };
+        root.ColumnStyles.Add(Cpx(232)); root.ColumnStyles.Add(Cpct(100));
+        root.RowStyles.Add(Pct(100));
         Controls.Add(root);
 
-        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = new Padding(6, 0, 6, 0) };
-        header.ColumnStyles.Add(Cpx(56)); header.ColumnStyles.Add(Cpct(100)); header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        header.Controls.Add(new PictureBox { Image = Logo, SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(44, 44), Anchor = AnchorStyles.Left, Margin = new Padding(0) }, 0, 0);
-        var titles = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0), WrapContents = false };
-        titles.Controls.Add(Theme.Label("KennelBridge", font: Big));
-        titles.Controls.Add(Theme.Label("Your two-PC stream, bridged: overlays, audio, hotkeys, recordings.", muted: true, Small));
-        header.Controls.Add(titles, 1, 0);
-        var right = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, WrapContents = false, Margin = new Padding(0) };
-        _pill.Margin = new Padding(0, 0, 10, 0);
-        right.Controls.Add(_pill);
-        _updateBtn.Visible = false; _updateBtn.Margin = new Padding(0, 0, 8, 0);
+        // ---- left rail: brand, pages, connection summary ----
+        var rail = new Panel { Dock = DockStyle.Fill, BackColor = Rail, Margin = new Padding(0), Padding = new Padding(13, 16, 13, 14) };
+        rail.Paint += (_, e) => { using var p = new Pen(CardBorder); e.Graphics.DrawLine(p, rail.Width - 1, 0, rail.Width - 1, rail.Height); };
+        root.Controls.Add(rail, 0, 0);
+
+        var brand = new Panel { Dock = DockStyle.Top, Height = 58, BackColor = Rail };
+        brand.Controls.Add(new PictureBox { Image = Logo, SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(32, 32), Location = new Point(6, 4), BackColor = Rail });
+        brand.Controls.Add(new Label { Text = "KennelBridge", Font = Huge, ForeColor = Fg, AutoSize = true, Location = new Point(46, 7), BackColor = Rail });
+
+        var nav = new FlowLayoutPanel { Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Rail, Margin = new Padding(0) };
+
+        var foot = new Panel { Dock = DockStyle.Bottom, Height = 176, BackColor = Rail, Padding = new Padding(4, 14, 4, 0) };
+        foot.Paint += (_, e) => { using var p = new Pen(CardBorder); e.Graphics.DrawLine(p, 0, 0, foot.Width, 0); };
+        _pill.AutoSize = false; _pill.Dock = DockStyle.Top; _pill.Height = 32; _pill.Margin = new Padding(0);
+        _updateBtn.Visible = false; _updateBtn.Dock = DockStyle.Bottom; _updateBtn.AutoSize = false; _updateBtn.Height = 34;
         _updateBtn.Click += (_, _) => ShowUpdate();
-        right.Controls.Add(_updateBtn);
+        var btns = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 42, ColumnCount = 2, BackColor = Rail, Margin = new Padding(0), Padding = new Padding(0, 6, 0, 0) };
+        btns.ColumnStyles.Add(Cpct(50)); btns.ColumnStyles.Add(Cpct(50));
+        _pauseBtn.AutoSize = false; _pauseBtn.Dock = DockStyle.Fill; _pauseBtn.MinimumSize = new Size(0, 34); _pauseBtn.Margin = new Padding(0, 0, 4, 0);
         _pauseBtn.Click += (_, _) => SetEnabled(!S.Enabled);
-        right.Controls.Add(_pauseBtn);
-        var wiz = Theme.Button("Setup wizard"); wiz.Margin = new Padding(0);
+        var wiz = Theme.Button("Setup", minWidth: 0); wiz.AutoSize = false; wiz.Dock = DockStyle.Fill; wiz.Margin = new Padding(4, 0, 0, 0);
         wiz.Click += (_, _) => RunWizard();
-        right.Controls.Add(wiz);
-        header.Controls.Add(right, 2, 0);
-        root.Controls.Add(header, 0, 0);
-        root.SetColumnSpan(header, 2);
+        btns.Controls.Add(_pauseBtn, 0, 0); btns.Controls.Add(wiz, 1, 0);
+        // dock order: last added docks first
+        foot.Controls.Add(_railPeer); foot.Controls.Add(_pill);
+        foot.Controls.Add(_updateBtn); foot.Controls.Add(btns);
+        _railPeer.BackColor = Rail; _railPeer.Padding = new Padding(2, 4, 0, 0);
 
-        var side = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(6, 6, 0, 6), Padding = new Padding(0, 4, 0, 0) };
-        root.Controls.Add(side, 0, 1);
-        root.Controls.Add(_pages, 1, 1);
+        rail.Controls.Add(nav); rail.Controls.Add(brand); rail.Controls.Add(foot);
 
-        void AddPage(string name, Control page)
+        // ---- content: page title, the page, status line ----
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Margin = new Padding(0), Padding = new Padding(32, 22, 28, 6), BackColor = Bg };
+        content.ColumnStyles.Add(Cpct(100));
+        content.RowStyles.Add(Px(78)); content.RowStyles.Add(Pct(100)); content.RowStyles.Add(Px(28));
+        var head = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0), BackColor = Bg };
+        head.Controls.Add(_pageTitle); head.Controls.Add(_pageSub);
+        content.Controls.Add(head, 0, 0);
+        content.Controls.Add(_pages, 0, 1);
+        _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true; _status.TextAlign = ContentAlignment.MiddleLeft; _status.Margin = new Padding(0); _status.Font = Small;
+        content.Controls.Add(_status, 0, 2);
+        root.Controls.Add(content, 1, 0);
+
+        void AddPage(string name, Control page, Func<bool?>? state)
         {
-            var b = new Button
-            {
-                Text = "   " + name, TextAlign = ContentAlignment.MiddleLeft, FlatStyle = FlatStyle.Flat, Width = 174, Height = 44,
-                BackColor = Bg, ForeColor = Fg, Font = Body, Cursor = Cursors.Hand, Margin = new Padding(0, 0, 0, 4), UseVisualStyleBackColor = false,
-            };
-            b.FlatAppearance.BorderSize = 0;
-            b.FlatAppearance.MouseOverBackColor = CardBg;
-            b.Click += (_, _) => ShowPage(name);
-            side.Controls.Add(b);
+            var item = new NavItem(name, PageInfo[name].glyph) { State = state };
+            item.Click += (_, _) => ShowPage(name);
+            nav.Controls.Add(item);
             // each page sits in a scrolling host with a minimum height, so a small window scrolls instead of crushing the cards
-            var host = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Visible = false, Margin = new Padding(0) };
-            page.Dock = DockStyle.Top; page.Height = 700; page.MinimumSize = new Size(0, 700);
+            var host = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Visible = false, Margin = new Padding(0), BackColor = Bg };
+            page.Dock = DockStyle.Top; page.Height = 640; page.MinimumSize = new Size(0, 640);
             host.Controls.Add(page);
-            host.Resize += (_, _) => page.Height = Math.Max(700, host.ClientSize.Height);
+            host.Resize += (_, _) => page.Height = Math.Max(640, host.ClientSize.Height);
             _pages.Controls.Add(host);
-            _nav[name] = (b, host);
+            _nav[name] = (item, host);
         }
-        AddPage(PageConnection, BuildConnectionPage());
-        AddPage(PageOverlay, BuildOverlayPage());
-        AddPage(PageAudio, BuildAudioPage());
-        AddPage(PageHotkeys, BuildHotkeysPage());
-        AddPage(PageFiles, BuildFilesPage());
-        AddPage(PageActivity, BuildActivityPage());
+        AddPage(PageConnection, BuildConnectionPage(), null);
+        AddPage(PageOverlay, BuildOverlayPage(), () => S.Enabled && (S.OverlayServer || S.OverlayCapture));
+        AddPage(PageAudio, BuildAudioPage(), () => S.Enabled && _audioSession != null);
+        AddPage(PageHotkeys, BuildHotkeysPage(), () => S.Enabled && S.HotkeysEnabled);
+        AddPage(PageFiles, BuildFilesPage(), () => S.Enabled && (S.FileSendEnabled || S.FileReceiveEnabled));
+        AddPage(PageActivity, BuildActivityPage(), null);
         ShowPage(PageConnection);
-
-        _status.AutoSize = false; _status.Dock = DockStyle.Fill; _status.AutoEllipsis = true; _status.TextAlign = ContentAlignment.MiddleLeft; _status.Margin = new Padding(8, 0, 8, 0);
-        root.Controls.Add(_status, 0, 2);
-        root.SetColumnSpan(_status, 2);
     }
 
     internal void ShowPage(string name)
     {
-        foreach (var (n, (btn, page)) in _nav)
+        foreach (var (n, (item, page)) in _nav)
         {
             bool on = n == name;
             page.Visible = on;
-            btn.BackColor = on ? CardBg : Bg;
-            btn.ForeColor = on ? Amber : Fg;
-            btn.Font = on ? Semibold : Body;
+            item.Active = on;
+            item.Invalidate();
         }
         _currentPage = name;
+        _pageTitle.Text = name;
+        _pageSub.Text = PageInfo.TryGetValue(name, out var i) ? i.sub : "";
+    }
+
+    void RefreshRail()
+    {
+        foreach (var (item, _) in _nav.Values) item.Invalidate();
+        _railPeer.Text = S.PeerHost.Length == 0 ? "No other PC set" : $"{S.RoleText}  ↔  {PeerName()}";
     }
 
     static Button On(Button b, Action a) { b.Click += (_, _) => a(); return b; }
@@ -201,7 +228,7 @@ public sealed partial class MainForm : Form
 
     Control BuildActivityPage()
     {
-        var act = new Card("Activity") { Hint = "every bridge logs here" };
+        var act = new Card("Log");
         var aT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
         aT.ColumnStyles.Add(Cpct(100)); aT.ColumnStyles.Add(Cpx(28));
         aT.RowStyles.Add(Pct(100)); aT.RowStyles.Add(Px(40));
@@ -345,10 +372,11 @@ public sealed partial class MainForm : Form
         var peer = S.PeerHost.Length == 0 ? "" : "  →  " + PeerName();
         var text = $"KennelBridge: {(S.Enabled ? S.RoleText : "paused")}{peer}";
         _tray.Text = text.Length > 63 ? text[..63] : text;
-        _pill.Text = S.Enabled ? $"Active · {S.RoleText}{peer}" : "Paused";
-        _pill.Dot = S.Enabled ? Green : Muted;
-        _pill.Fill = S.Enabled ? Color.FromArgb(24, 38, 30) : Field;
+        _pill.Text = !S.Enabled ? "Paused" : S.PeerHost.Length == 0 ? "Not linked yet" : $"Linked to {PeerName()}";
+        _pill.Dot = !S.Enabled ? Muted : S.PeerHost.Length == 0 ? Amber : Green;
+        _pill.Fill = Field;
         _pauseBtn.Text = S.Enabled ? "Pause" : "Resume";
+        RefreshRail();
     }
 
     // =====================================================================  updates
