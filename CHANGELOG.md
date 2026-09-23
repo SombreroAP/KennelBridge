@@ -2,6 +2,11 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.2.0
+- **Audio crackling fixed at the source.** Three things in the playback loop caused it, whichever latency setting was picked: the loop slept on Windows' default 15.6 ms timer, so the sound card's 25–40 ms buffer could run dry between wake-ups; nothing kept a cushion in front of the card after start-up, so ordinary network jitter emptied it; and clock drift between the two PCs was corrected by throwing away a whole 5 ms block at once, an audible click. Now the loop runs on a 1 ms timer, keeps a cushion of 20 / 35 / 70 ms (Lowest / Balanced / Most stable) and rebuilds it after any gap, follows drift one sample-frame at a time, and fills a lost packet with a quieter copy of the previous one instead of a hole of silence. Latency goes up by about the cushion.
+- **Collect diagnostics.** A button on the Activity page (and in the tray menu) saves one zip to the Desktop: the log, settings with the passphrase removed, a system report (Windows and app version, display scaling, network adapters with Wi-Fi or cable and link speed, every audio device with the format Windows runs it at) and what the app is showing right now. Nothing is sent anywhere; you pass the zip on.
+- While audio runs, the log gets one line every 10 seconds with buffer level, packets received and lost, late packets, underruns, trims and drift, so a crackle can be matched to what caused it. The Audio page's status line now shows loss and underruns too.
+
 ## 1.1.2
 - **Windows display scaling (125 %, 150 %…).** Text grew with the scaling but the rows, cards and page heights it sits in did not, so at 125 % everything was crowded. Every fixed row and column, the minimum page height, and the switches, cards, rail and status dots now scale with the monitor, including when you drag the window to a monitor with different scaling. Windows are also kept inside the screen, so a 1080p laptop at 125 % gets a window that fits rather than one taller than the display.
 

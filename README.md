@@ -46,6 +46,12 @@ the ones you want.
 running in the tray; the amber icon flashes green on activity. **Pause** in the header stops every
 bridge at once.
 
+## Problems
+
+**Collect diagnostics** on the Activity page (or in the tray menu) saves a zip to the Desktop with
+the log, your settings with the passphrase removed, and a short system and audio-device report.
+Nothing is uploaded; send the zip to whoever is helping you.
+
 ## Updates
 
 KennelBridge checks GitHub for a newer release a few seconds after it starts and every six hours.

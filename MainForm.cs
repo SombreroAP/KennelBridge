@@ -71,6 +71,7 @@ public sealed partial class MainForm : Form
         _menu.Items.Add(_miEnabled);
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add("Check for updates…", null, (_, _) => _ = CheckForUpdates(manual: true));
+        _menu.Items.Add("Collect diagnostics", null, (_, _) => CollectDiagnostics());
         _menu.Items.Add("Exit", null, (_, _) => ExitApp());
         _tray = new NotifyIcon { ContextMenuStrip = _menu, Visible = true };
         _tray.DoubleClick += (_, _) => ShowWindow();
@@ -246,6 +247,7 @@ public sealed partial class MainForm : Form
         _lamp.Paint += (_, e) => { e.Graphics.SmoothingMode = SmoothingMode.AntiAlias; using var b = new SolidBrush(_lamp.BackColor); e.Graphics.Clear(CardBg); e.Graphics.FillEllipse(b, 0, 0, 13, 13); };
         aT.Controls.Add(_lamp, 1, 0);
         var ab = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 6, 0, 0) };
+        ab.Controls.Add(On(Theme.Button("Collect diagnostics", primary: true), CollectDiagnostics));
         ab.Controls.Add(On(Theme.Button("Open log file"), OpenLogFile));
         ab.Controls.Add(On(Theme.Button("Clear", minWidth: 70), () => _activity.Items.Clear()));
         aT.Controls.Add(ab, 0, 1);
@@ -301,6 +303,30 @@ public sealed partial class MainForm : Form
             }
         }
         catch { }
+    }
+
+    /// <summary>Zip the log, redacted settings, a system report and what the app shows right now; put it on the Desktop.</summary>
+    void CollectDiagnostics()
+    {
+        try
+        {
+            var live = new System.Text.StringBuilder();
+            live.AppendLine(Summary());
+            live.AppendLine($"Enabled: {S.Enabled}   Page: {_currentPage}");
+            live.AppendLine("Audio: " + _auStatus.Text);
+            if (_audioSession != null) live.AppendLine("Audio session: " + _audioSession.Describe());
+            live.AppendLine("Overlay: " + _ovStatus.Text);
+            live.AppendLine("Files send: " + _fsStatus.Text);
+            live.AppendLine("Files receive: " + _frStatus.Text);
+            live.AppendLine("Peers seen:");
+            foreach (var p in Disc.Peers.Values) live.AppendLine($"  {p.Name}  {p.Ip}  {p.RoleText}  {(p.Online ? "online" : "offline")}  last seen {p.LastSeen:HH:mm:ss} UTC");
+            live.AppendLine("Recent activity:");
+            foreach (ListViewItem it in _activity.Items.Cast<ListViewItem>().Take(200)) live.AppendLine($"  {it.Text}  {it.SubItems[1].Text}");
+            var path = Diagnostics.Collect(S, live.ToString(), DeviceDpi);
+            Activity($"Diagnostics saved: {Path.GetFileName(path)} on the Desktop. Send it over (for example put it in the KennelBridge folder on Google Drive).", flash: false);
+            Diagnostics.Reveal(path);
+        }
+        catch (Exception ex) { SetStatus("Could not collect diagnostics: " + ex.Message); }
     }
 
     void OpenLogFile()

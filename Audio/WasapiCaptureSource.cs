@@ -30,6 +30,9 @@ public sealed class WasapiCaptureSource : IAudioCaptureSource
 
     public AudioFormat Format { get; }
 
+    /// <summary>What the device actually delivers before conversion, for diagnostics.</summary>
+    public string SourceFormat => _capture.WaveFormat.ToString();
+
     /// <summary>Raised on the WASAPI capture thread. Handlers must not block.</summary>
     public event Action<ReadOnlyMemory<byte>>? DataAvailable;
 

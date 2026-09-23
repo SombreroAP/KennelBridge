@@ -143,7 +143,7 @@ public sealed partial class MainForm
         return new BridgeSettings
         {
             Role = S.Role, RenderDeviceId = S.AudioRenderDeviceId, CaptureDeviceId = S.AudioCaptureDeviceId,
-            JitterDepth = lat.JitterDepth, RenderLatencyMs = lat.RenderLatencyMs, BlockMilliseconds = lat.BlockMilliseconds, MaxPlaybackBufferMs = lat.MaxPlaybackBufferMs,
+            JitterDepth = lat.JitterDepth, RenderLatencyMs = lat.RenderLatencyMs, BlockMilliseconds = lat.BlockMilliseconds, MaxPlaybackBufferMs = lat.MaxPlaybackBufferMs, TargetBufferMs = lat.TargetBufferMs,
             AudioPort = (ushort)S.AudioPort,
         };
     }
@@ -196,6 +196,7 @@ public sealed partial class MainForm
             _audioSession = session;
             _audioKey = AudioKey();
             _audioError = "";
+            WriteLog(DateTime.Now, "Audio session: " + session.Describe());
             Activity($"Audio: started - {(S.Role == PcRole.Gaming ? "sending game audio, receiving the microphone" : "receiving game audio, sending the microphone")} ({PeerLabel()}).", flash: false);
         }
         catch (Exception ex)
@@ -235,6 +236,26 @@ public sealed partial class MainForm
             _ = StartAudio(manual: false);
         }
         if (_currentPage == PageAudio) UpdateAudioStatus();
+        LogAudioStats();
+    }
+
+    // Every 10 s while the link runs, one line in the log file (not the Activity list) with what changed:
+    // the numbers a crackle report needs - buffer level, loss, lateness, underruns, trims, drift.
+    DateTime _audioStatsAt = DateTime.MinValue;
+    BridgeStatus _audioPrev;
+    void LogAudioStats()
+    {
+        var s = _audioSession;
+        if (s == null) { _audioStatsAt = DateTime.MinValue; return; }
+        var now = DateTime.UtcNow;
+        if (_audioStatsAt == DateTime.MinValue) { _audioStatsAt = now; _audioPrev = s.GetStatus(); return; }
+        if ((now - _audioStatsAt).TotalSeconds < 10) return;
+        var st = s.GetStatus(); var p = _audioPrev;
+        _audioStatsAt = now; _audioPrev = st;
+        WriteLog(DateTime.Now, $"Audio stats 10s: buffer {st.PlaybackBuffered.TotalMilliseconds:F0} ms, jitter queue {st.Jitter.Depth}, " +
+            $"sent +{st.PacketsSent - p.PacketsSent}, received +{st.PacketsReceived - p.PacketsReceived}, lost +{st.Concealed - p.Concealed}, " +
+            $"late +{st.Jitter.LatePackets - p.Jitter.LatePackets}, underruns +{st.Underruns - p.Underruns}, trimmed +{st.TrimmedBlocks - p.TrimmedBlocks}, " +
+            $"drift -{st.DriftDropped - p.DriftDropped}/+{st.DriftRepeated - p.DriftRepeated} frames");
     }
 
     void UpdateAudioStatus()
@@ -245,7 +266,7 @@ public sealed partial class MainForm
         if (_audioSession != null)
         {
             var st = _audioSession.GetStatus();
-            _auStatus.Text = $"● Running  ·  latency ~{st.PlaybackBuffered.TotalMilliseconds:F0} ms  ·  sent {st.PacketsSent:N0}  ·  received {st.PacketsReceived:N0}  ·  {st.Jitter.ConcealedPackets:N0} dropouts  ·  {st.TrimmedBlocks:N0} trimmed" + (_audioError.Length > 0 ? "  ·  " + _audioError : "");
+            _auStatus.Text = $"● Running  ·  buffer {st.PlaybackBuffered.TotalMilliseconds:F0} ms  ·  received {st.PacketsReceived:N0}  ·  {st.Concealed:N0} lost  ·  {st.Underruns:N0} underruns  ·  {st.TrimmedBlocks:N0} trimmed" + (_audioError.Length > 0 ? "  ·  " + _audioError : "");
             _auStatus.ForeColor = st.PacketsReceived > 0 ? Green : Muted;
         }
         else if (_audioStarting) { _auStatus.Text = "Starting…"; _auStatus.ForeColor = Muted; }

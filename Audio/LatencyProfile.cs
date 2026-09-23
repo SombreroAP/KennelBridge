@@ -32,6 +32,9 @@ public sealed record LatencyProfile(
 
     public static IReadOnlyList<LatencyProfile> All { get; } = [Lowest, Balanced, Stable];
 
+    /// <summary>Audio kept queued ahead of the sound card by the pump. Bigger rides out more network jitter.</summary>
+    public int TargetBufferMs => Name == Lowest.Name ? 20 : Name == Stable.Name ? 70 : 35;
+
     public static LatencyProfile ByName(string? name) =>
         All.FirstOrDefault(profile => profile.Name == name) ?? Balanced;
 

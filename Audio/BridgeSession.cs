@@ -28,6 +28,9 @@ public sealed record BridgeSettings
     public int MaxPlaybackBufferMs { get; init; } = 75;
 
     public ushort AudioPort { get; init; } = 47810;
+
+    /// <summary>Audio kept queued for the sound card; absorbs network jitter.</summary>
+    public int TargetBufferMs { get; init; } = 35;
 }
 
 /// <summary>
@@ -160,35 +163,90 @@ public sealed class BridgeSession : IAsyncDisposable
         }
     }
 
+    [System.Runtime.InteropServices.DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint period);
+    [System.Runtime.InteropServices.DllImport("winmm.dll")] private static extern uint timeEndPeriod(uint period);
+
+    /// <summary>Times the playback buffer ran empty (each one is an audible gap).</summary>
+    public long Underruns { get; private set; }
+    /// <summary>Lost packets filled in by repeating the previous block quietly.</summary>
+    public long Concealed { get; private set; }
+    /// <summary>Single frames dropped (+) or repeated (-) to follow the other PC's clock without a click.</summary>
+    public long DriftDropped { get; private set; }
+    public long DriftRepeated { get; private set; }
+
+    /// <summary>
+    /// Feeds the sound card at a steady level. Three things here prevent crackle:
+    /// 1 ms timer resolution (Windows' default 15.6 ms tick starves a 25 ms device buffer);
+    /// a cushion of TargetBufferMs kept in the playback buffer, re-established after any underrun;
+    /// and clock drift followed one frame at a time (inaudible) instead of dropping whole 5 ms blocks.
+    /// </summary>
     private void PumpLoop()
     {
-        while (_running)
+        timeBeginPeriod(1);
+        try
         {
-            var wroteSomething = false;
-            while (_receiver!.TryRead(InboundStream, out var packet))
+            var sink = _render as WasapiRenderSink;
+            int frame = _format.BytesPerFrame;
+            double target = _settings.TargetBufferMs;
+            bool primed = false;
+            var last = new byte[_silence.Length];
+            int lastLen = 0;
+            while (_running)
             {
-                wroteSomething = true;
-
-                // The two PCs' sound cards run at slightly different real rates, so audio
-                // arrives fractionally faster than it plays and the backlog grows all
-                // session. Dropping a block once the queue is too deep holds latency at the
-                // profile's ceiling instead of letting it drift into seconds.
-                if (_render is WasapiRenderSink sink &&
-                    sink.BufferedDuration.TotalMilliseconds > _settings.MaxPlaybackBufferMs)
+                var wroteSomething = false;
+                while (_receiver!.TryRead(InboundStream, out var packet))
                 {
-                    TrimmedBlocks++;
-                    continue;
+                    wroteSomething = true;
+                    double buffered = sink?.BufferedDuration.TotalMilliseconds ?? target;
+
+                    if (sink != null && !primed)
+                    {
+                        // start (or restart after an underrun) with a cushion so network jitter cannot empty the card
+                        sink.Write(new byte[_format.BytesForDuration(Math.Max(0, target - buffered))]);
+                        primed = true;
+                        buffered = target;
+                    }
+                    else if (sink != null && buffered < 1)
+                    {
+                        Underruns++;
+                        sink.Write(new byte[_format.BytesForDuration(target / 2)]);
+                        buffered = target / 2;
+                    }
+
+                    if (buffered > _settings.MaxPlaybackBufferMs) { TrimmedBlocks++; continue; }   // far behind: hard limit (rare now)
+
+                    ReadOnlySpan<byte> pcm;
+                    if (packet.Payload.IsEmpty)
+                    {
+                        // lost packet: repeat the previous block at half level rather than a hole of silence
+                        Concealed++;
+                        if (lastLen > 0) { for (int i = 0; i + 1 < lastLen; i += 2) { short v = (short)(last[i] | (last[i + 1] << 8)); v = (short)(v / 2); last[i] = (byte)v; last[i + 1] = (byte)(v >> 8); } pcm = last.AsSpan(0, lastLen); }
+                        else pcm = _silence;
+                    }
+                    else
+                    {
+                        pcm = packet.Payload.Span;
+                        lastLen = Math.Min(pcm.Length, last.Length); pcm[..lastLen].CopyTo(last);
+                    }
+
+                    if (sink != null && buffered > target * 1.6 && pcm.Length >= frame * 2)
+                    { sink.Write(pcm[..^frame]); DriftDropped++; }
+                    else if (sink != null && buffered < target * 0.6 && pcm.Length >= frame)
+                    { sink.Write(pcm); sink.Write(pcm[^frame..]); DriftRepeated++; }
+                    else
+                        _render!.Write(pcm);
                 }
-
-                // A concealed packet carries no payload: play a block of silence so the
-                // stream keeps its timing instead of jumping forward.
-                _render!.Write(packet.Payload.IsEmpty ? _silence : packet.Payload.Span);
+                if (!wroteSomething) Thread.Sleep(1);
             }
-
-            // Sleep only when the buffer ran dry, so a burst of packets drains in one pass.
-            if (!wroteSomething) Thread.Sleep(2);
         }
+        finally { timeEndPeriod(1); }
     }
+
+    /// <summary>One line for the log: formats, devices and buffer sizes actually in use.</summary>
+    public string Describe() =>
+        $"stream {OutboundStream} out / {InboundStream} in, 48 kHz 16-bit stereo, block {_settings.BlockMilliseconds} ms, jitter depth {_settings.JitterDepth}, " +
+        $"target buffer {_settings.TargetBufferMs} ms, max {_settings.MaxPlaybackBufferMs} ms, device buffer {(_render as WasapiRenderSink)?.ActualLatencyMs ?? 0} ms" +
+        (_capture != null ? $", capture device format {_capture.SourceFormat}" : "");
 
     public BridgeStatus GetStatus()
     {
@@ -200,7 +258,7 @@ public sealed class BridgeSession : IAsyncDisposable
             _receiver?.PacketsReceived ?? 0,
             stats,
             (_render as WasapiRenderSink)?.BufferedDuration ?? TimeSpan.Zero,
-            TrimmedBlocks);
+            TrimmedBlocks, Underruns, Concealed, DriftDropped, DriftRepeated);
     }
 
     public async Task StopAsync()
@@ -243,4 +301,8 @@ public readonly record struct BridgeStatus(
     long PacketsReceived,
     JitterBufferStats Jitter,
     TimeSpan PlaybackBuffered,
-    long TrimmedBlocks);
+    long TrimmedBlocks,
+    long Underruns = 0,
+    long Concealed = 0,
+    long DriftDropped = 0,
+    long DriftRepeated = 0);
