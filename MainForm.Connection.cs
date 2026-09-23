@@ -20,7 +20,7 @@ public sealed partial class MainForm
 
     Control BuildConnectionPage()
     {
-        var col = Rows(352, 162, -1);
+        var col = Rows(352, 200, -1);
 
         var conn = new Card("Other PC") { Dock = DockStyle.Fill };
         var cT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 7 };

@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.1.1
+- The Startup card on the Connection page cut off its last switch (Streamer mode). It now has room for all three.
+
 ## 1.1.0
 - **A new look.** Redesigned in Claude Design and rebuilt to match: a left rail with an icon and a live on/off dot for each bridge, the connection summary and Pause at the bottom of the rail, and the page's own title and one-line description at the top instead of the big banner. Settings sit on flat rounded surfaces with hairline dividers, tick boxes are now on/off switches, buttons are rounded and quieter, lists have roomier rows with a clear selection, and the title bar matches the window on Windows 11.
 - Less text: the explainer cards on the Connection and Audio pages are gone, card headings no longer repeat the page name, and the remaining help lines are one sentence.
