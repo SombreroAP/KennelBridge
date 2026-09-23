@@ -76,4 +76,7 @@ public sealed class PressPrompt : Form
         _box.Text = kind == ActionKind.Key ? KeyNames.Describe(mods, vk) : KeyNames.MouseName(kind);
         BeginInvoke(() => { DialogResult = DialogResult.OK; Close(); });
     }
+
+    protected override void OnLoad(EventArgs e) { base.OnLoad(e); Theme.ApplyDpi(this); Theme.FitToScreen(this); }
+    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); Theme.ApplyDpi(this); }
 }

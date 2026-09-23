@@ -1,5 +1,6 @@
 using System.Drawing.Drawing2D;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace KennelBridge;
@@ -66,7 +67,7 @@ public static class Theme
     {
         int d = radius * 2;
         var p = new GraphicsPath();
-        if (d <= 0) { p.AddRectangle(r); return p; }
+        if (d <= 0 || d > r.Width || d > r.Height) { d = Math.Max(1, Math.Min(Math.Min(r.Width, r.Height), d)); }
         p.AddArc(r.X, r.Y, d, d, 180, 90);
         p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
         p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
@@ -166,9 +167,41 @@ public static class Theme
         };
     }
 
-    public static RowStyle Px(int h) => new(SizeType.Absolute, h);
+    // Fixed row/column sizes are written at 96 dpi (100 %). ApplyDpi sets every one of them for the
+    // monitor's real scaling, so 125 % / 150 % get proportionally taller rows, not the same rows with bigger text.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TableLayoutStyle, StrongBox<float>> Logical = new();
+    public static RowStyle Px(int h) { var s = new RowStyle(SizeType.Absolute, h); Logical.Add(s, new StrongBox<float>(h)); return s; }
     public static RowStyle Pct(float p) => new(SizeType.Percent, p);
-    public static ColumnStyle Cpx(int w) => new(SizeType.Absolute, w);
+    public static ColumnStyle Cpx(int w) { var s = new ColumnStyle(SizeType.Absolute, w); Logical.Add(s, new StrongBox<float>(w)); return s; }
+
+    /// <summary>Pixels at this control's DPI for a size written at 96 dpi.</summary>
+    public static int S(Control c, float v) => (int)Math.Round(v * c.DeviceDpi / 96f);
+
+    /// <summary>Re-size every fixed layout row and column under <paramref name="root"/> for its monitor's scaling. Idempotent.</summary>
+    public static void ApplyDpi(Control root)
+    {
+        float k = root.DeviceDpi / 96f;
+        void Walk(Control c)
+        {
+            if (c is TableLayoutPanel t)
+            {
+                t.SuspendLayout();
+                foreach (RowStyle r in t.RowStyles) if (r.SizeType == SizeType.Absolute && Logical.TryGetValue(r, out var v)) r.Height = v.Value * k;
+                foreach (ColumnStyle col in t.ColumnStyles) if (col.SizeType == SizeType.Absolute && Logical.TryGetValue(col, out var v)) col.Width = v.Value * k;
+                t.ResumeLayout(true);
+            }
+            foreach (Control ch in c.Controls) Walk(ch);
+        }
+        Walk(root);
+    }
+
+    /// <summary>Keep a window on its screen: at 125 % a 1120 × 800 window is taller than a 1080p laptop's work area.</summary>
+    public static void FitToScreen(Form f)
+    {
+        var wa = Screen.FromControl(f).WorkingArea;
+        int w = Math.Min(f.Width, wa.Width - 24), h = Math.Min(f.Height, wa.Height - 24);
+        if (w != f.Width || h != f.Height) { f.Size = new Size(w, h); f.Location = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + (wa.Height - h) / 2); }
+    }
     public static ColumnStyle Cpct(float p) => new(SizeType.Percent, p);
 }
 
@@ -224,7 +257,8 @@ public sealed class KButton : Button
 /// <summary>Owner-drawn on/off switch with its label to the right. Amber track and a dark knob when on.</summary>
 public sealed class KennelCheck : CheckBox
 {
-    const int TrackW = 40, TrackH = 22;
+    int TrackW => Theme.S(this, 40);
+    int TrackH => Theme.S(this, 22);
 
     public KennelCheck()
     {
@@ -239,7 +273,7 @@ public sealed class KennelCheck : CheckBox
     public override Size GetPreferredSize(Size proposed)
     {
         var t = TextRenderer.MeasureText(Text, Font);
-        return new Size(TrackW + (Text.Length > 0 ? 12 + t.Width + 4 : 2), Math.Max(TrackH + 6, t.Height + 6));
+        return new Size(TrackW + (Text.Length > 0 ? Theme.S(this, 12) + t.Width + 4 : 2), Math.Max(TrackH + Theme.S(this, 6), t.Height + Theme.S(this, 6)));
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -255,18 +289,20 @@ public sealed class KennelCheck : CheckBox
         {
             using (var fill = new SolidBrush(!Enabled ? Theme.Line2 : hover ? Theme.AmberHover : Theme.Amber)) g.FillPath(fill, path);
             using var knob = new SolidBrush(Theme.Ink);
-            g.FillEllipse(knob, track.Right - 19, y + 3, 16, 16);
+            int kd = TrackH - Theme.S(this, 6);
+            g.FillEllipse(knob, track.Right - kd - Theme.S(this, 3), y + Theme.S(this, 3), kd, kd);
         }
         else
         {
             using (var fill = new SolidBrush(hover && Enabled ? Theme.FieldHover : Theme.Field)) g.FillPath(fill, path);
             using (var pen = new Pen(Theme.Line2)) g.DrawPath(pen, path);
             using var knob = new SolidBrush(Enabled ? Theme.Muted : Theme.Line2);
-            g.FillEllipse(knob, track.Left + 3, y + 3, 16, 16);
+            int kd = TrackH - Theme.S(this, 6);
+            g.FillEllipse(knob, track.Left + Theme.S(this, 3), y + Theme.S(this, 3), kd, kd);
         }
         if (Text.Length > 0)
         {
-            var tr = new Rectangle(TrackW + 12, 0, Width - TrackW - 12, Height);
+            var tr = new Rectangle(TrackW + Theme.S(this, 12), 0, Width - TrackW - Theme.S(this, 12), Height);
             TextRenderer.DrawText(g, Text, Font, tr, Enabled ? ForeColor : Theme.Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
         }
         if (Focused && ShowFocusCues) { using var fp = new Pen(Color.FromArgb(160, Theme.Amber)); g.DrawPath(fp, path); }
@@ -299,18 +335,19 @@ public sealed class Card : Panel
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         using (var bg = new SolidBrush(Theme.Bg)) g.FillRectangle(bg, ClientRectangle);
-        using var path = Theme.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), 10);
+        using var path = Theme.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), Theme.S(this, 10));
         using (var fill = new SolidBrush(Theme.CardBg)) g.FillPath(fill, path);
         using (var pen = new Pen(Theme.CardBorder)) g.DrawPath(pen, path);
         if (Title.Length > 0)
         {
-            TextRenderer.DrawText(g, Title, Theme.Title, new Point(18, 14), Theme.Fg, TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(g, Title, Theme.Title, new Point(Theme.S(this, 18), Theme.S(this, 13)), Theme.Fg, TextFormatFlags.NoPrefix);
             using var pen = new Pen(Theme.CardBorder);
-            g.DrawLine(pen, 1, 40, Width - 2, 40);
+            int y = Padding.Top - Theme.S(this, 7);
+            g.DrawLine(pen, 1, y, Width - 2, y);
         }
         if (_hint.Length > 0)
         {
-            var r = new Rectangle(Width / 3, 12, Width * 2 / 3 - 18, 24);
+            var r = new Rectangle(Width / 3, Theme.S(this, 11), Width * 2 / 3 - Theme.S(this, 18), Theme.S(this, 26));
             TextRenderer.DrawText(g, _hint, Theme.Small, r, Theme.Muted, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
     }
@@ -348,9 +385,10 @@ public sealed class NavItem : Control
         using var path = Theme.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), 8);
         if (Active || _hover) { using var b = new SolidBrush(Active ? Theme.Field : Theme.CardBg); g.FillPath(b, path); }
         if (Focused && ShowFocusCues) { using var fp = new Pen(Color.FromArgb(140, Theme.Amber)); g.DrawPath(fp, path); }
-        TextRenderer.DrawText(g, Glyph, Theme.Icons, new Rectangle(12, 0, 22, Height), Active ? Theme.Amber : Theme.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-        TextRenderer.DrawText(g, Text, Active ? Theme.Semibold : Theme.Body, new Rectangle(44, 0, Width - 70, Height), Active ? Theme.Fg : Theme.Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
-        if (State?.Invoke() is bool on) { using var d = new SolidBrush(on ? Theme.Green : Theme.Line2); g.FillEllipse(d, Width - 20, Height / 2 - 4, 8, 8); }
+        int s12 = Theme.S(this, 12), s22 = Theme.S(this, 22), s44 = Theme.S(this, 44), dot = Theme.S(this, 8);
+        TextRenderer.DrawText(g, Glyph, Theme.Icons, new Rectangle(s12, 0, s22, Height), Active ? Theme.Amber : Theme.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        TextRenderer.DrawText(g, Text, Active ? Theme.Semibold : Theme.Body, new Rectangle(s44, 0, Width - s44 - Theme.S(this, 26), Height), Active ? Theme.Fg : Theme.Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+        if (State?.Invoke() is bool on) { using var d = new SolidBrush(on ? Theme.Green : Theme.Line2); g.FillEllipse(d, Width - Theme.S(this, 20), Height / 2 - dot / 2, dot, dot); }
     }
 }
 
@@ -378,7 +416,7 @@ public sealed class Pill : Label
         g.Clear(Theme.BackOf(this));
         using var path = Theme.Rounded(new Rectangle(0, 0, Width - 1, Height - 1), 8);
         using (var fill = new SolidBrush(_fill)) g.FillPath(fill, path);
-        using (var dot = new SolidBrush(_dot)) g.FillEllipse(dot, 10, Height / 2 - 4, 8, 8);
+        using (var dot = new SolidBrush(_dot)) { int d = Theme.S(this, 8); g.FillEllipse(dot, Theme.S(this, 10), Height / 2 - d / 2, d, d); }
         var r = new Rectangle(Padding.Left, 0, Width - Padding.Left - Padding.Right, Height);
         TextRenderer.DrawText(g, Text, Font, r, ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
     }
@@ -416,13 +454,15 @@ public sealed class OptionCard : Panel
         using (var pen = new Pen(_selected ? Theme.Amber : Theme.CardBorder, _selected ? 2f : 1f)) g.DrawPath(pen, path);
 
         // radio dot
-        var dotRect = new Rectangle(18, Height / 2 - 9, 18, 18);
+        int r18 = Theme.S(this, 18);
+        var dotRect = new Rectangle(r18, Height / 2 - r18 / 2, r18, r18);
         using (var ring = new Pen(_selected ? Theme.Amber : Theme.Muted, 2f)) g.DrawEllipse(ring, dotRect);
         if (_selected) { using var d = new SolidBrush(Theme.Amber); g.FillEllipse(d, Rectangle.Inflate(dotRect, -5, -5)); }
 
-        var textRect = new Rectangle(52, 12, Width - 66, Height - 24);
+        int x = Theme.S(this, 52);
+        var textRect = new Rectangle(x, Theme.S(this, 12), Width - x - Theme.S(this, 14), Height - Theme.S(this, 24));
         TextRenderer.DrawText(g, Title, Theme.Huge, textRect, Theme.Fg, TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.NoPrefix);
-        var descRect = new Rectangle(52, 40, Width - 66, Height - 48);
+        var descRect = new Rectangle(x, Theme.S(this, 42), Width - x - Theme.S(this, 14), Height - Theme.S(this, 50));
         TextRenderer.DrawText(g, Description, Theme.Body, descRect, Theme.Muted, TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
     }
 }

@@ -148,4 +148,7 @@ public sealed class CaptureDialog : Form
         _box2.ForeColor = _step == 2 ? Amber : Fg;
         _ok.Enabled = _have1 && _have2;
     }
+
+    protected override void OnLoad(EventArgs e) { base.OnLoad(e); Theme.ApplyDpi(this); Theme.FitToScreen(this); }
+    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); Theme.ApplyDpi(this); }
 }

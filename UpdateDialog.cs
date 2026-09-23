@@ -57,4 +57,7 @@ public sealed class UpdateDialog : Form
         });
         return string.Join(Environment.NewLine, lines).Trim();
     }
+
+    protected override void OnLoad(EventArgs e) { base.OnLoad(e); Theme.ApplyDpi(this); Theme.FitToScreen(this); }
+    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); Theme.ApplyDpi(this); }
 }

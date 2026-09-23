@@ -172,9 +172,13 @@ public sealed partial class MainForm : Form
             nav.Controls.Add(item);
             // each page sits in a scrolling host with a minimum height, so a small window scrolls instead of crushing the cards
             var host = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Visible = false, Margin = new Padding(0), BackColor = Bg };
-            page.Dock = DockStyle.Top; page.Height = 640; page.MinimumSize = new Size(0, 640);
+            page.Dock = DockStyle.Top;
             host.Controls.Add(page);
-            host.Resize += (_, _) => page.Height = Math.Max(640, host.ClientSize.Height);
+            // 640 logical px: at 125 % that is 800, so a small window scrolls rather than squeezing the cards
+            void Fit() { int min = Theme.S(this, 640); page.MinimumSize = new Size(0, min); page.Height = Math.Max(min, host.ClientSize.Height); }
+            host.Resize += (_, _) => Fit();
+            DpiChanged += (_, _) => Fit();
+            Fit();
             _pages.Controls.Add(host);
             _nav[name] = (item, host);
         }
@@ -454,15 +458,23 @@ public sealed partial class MainForm : Form
         Activate();
     }
 
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        Theme.ApplyDpi(this);
+    }
+
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        Theme.ApplyDpi(this);
         if (!_restoredSize && S.WindowWidth >= MinimumSize.Width && S.WindowHeight >= MinimumSize.Height)
         {
             Size = new Size(S.WindowWidth, S.WindowHeight);
             CenterToScreen();
         }
         _restoredSize = true;
+        Theme.FitToScreen(this);
         if (!S.SetupDone && !_wizardShown) { _wizardShown = true; BeginInvoke(() => RunWizard()); }
     }
 

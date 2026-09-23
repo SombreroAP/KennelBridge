@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.1.2
+- **Windows display scaling (125 %, 150 %…).** Text grew with the scaling but the rows, cards and page heights it sits in did not, so at 125 % everything was crowded. Every fixed row and column, the minimum page height, and the switches, cards, rail and status dots now scale with the monitor, including when you drag the window to a monitor with different scaling. Windows are also kept inside the screen, so a 1080p laptop at 125 % gets a window that fits rather than one taller than the display.
+
 ## 1.1.1
 - The Startup card on the Connection page cut off its last switch (Streamer mode). It now has room for all three.
 

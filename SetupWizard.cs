@@ -107,6 +107,7 @@ public sealed class SetupWizard : Form
             case Page.Discord: BuildDiscord(); break;
             case Page.Done: BuildDone(); break;
         }
+        Theme.ApplyDpi(_content);
         _back.Enabled = i > 0;
         _next.Text = step == Page.Done ? "Finish" : "Next";
     }
@@ -429,4 +430,7 @@ public sealed class SetupWizard : Form
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e) { _timer.Stop(); base.OnFormClosed(e); }
+
+    protected override void OnLoad(EventArgs e) { base.OnLoad(e); Theme.ApplyDpi(this); Theme.FitToScreen(this); }
+    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); Theme.ApplyDpi(this); }
 }
