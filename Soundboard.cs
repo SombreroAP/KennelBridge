@@ -45,6 +45,22 @@ public static class Soundboard
     public static readonly string[] Categories =
         { "air horn", "applause", "laugh", "drum roll", "fail", "victory", "explosion", "whoosh", "ding", "buzzer", "crickets", "gasp", "boing", "cash register", "record scratch", "bell" };
 
+    /// <summary>
+    /// The popular list shown before any search: the classic streamer soundboard staples, one short clean
+    /// version of each, picked from the same catalogue and built into the app (sounds/popular.json), so it
+    /// appears instantly with no network. Files still download on first use.
+    /// </summary>
+    public static List<SoundInfo> Popular()
+    {
+        try
+        {
+            using var rs = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("sounds/popular.json");
+            if (rs != null) return JsonSerializer.Deserialize<List<SoundInfo>>(rs) ?? new();
+        }
+        catch { }
+        return new();
+    }
+
     /// <summary>Search the catalogue. Short sounds first; nothing longer than a minute.</summary>
     public static async Task<List<SoundInfo>> SearchAsync(string query, int page = 1, CancellationToken ct = default)
     {

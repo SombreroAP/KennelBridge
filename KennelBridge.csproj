@@ -21,7 +21,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
-    <Version>1.3.0</Version>
+    <Version>1.3.1</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="app.png" LogicalName="app.png" />
+    <EmbeddedResource Include="sounds\popular.json" LogicalName="sounds/popular.json" />
     <EmbeddedResource Include="overlay\index.html" LogicalName="overlay/index.html" />
     <EmbeddedResource Include="overlay\app.js" LogicalName="overlay/app.js" />
     <EmbeddedResource Include="overlay\style.css" LogicalName="overlay/style.css" />

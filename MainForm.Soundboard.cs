@@ -70,7 +70,7 @@ public sealed partial class MainForm
         split.Controls.Add(board, 0, 0);
 
         var find = new Card("Find sounds") { Dock = DockStyle.Fill, Margin = new Padding(8, 0, 0, 0), Hint = "Creative Commons, via Openverse" };
-        var fT = Rows(40, 76, -1, 42, 26);
+        var fT = Rows(40, 112, -1, 42, 26);
         var sr = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0) };
         sr.ColumnStyles.Add(Cpct(100)); sr.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         _sbQuery.Dock = DockStyle.Fill;
@@ -81,6 +81,9 @@ public sealed partial class MainForm
         sr.Controls.Add(go, 1, 0);
         fT.Controls.Add(sr, 0, 0);
         var chips = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
+        var pop = Theme.Button("Popular", primary: true, minWidth: 0); pop.MinimumSize = new Size(0, 28); pop.Font = Small; pop.Margin = new Padding(0, 0, 6, 6); pop.Padding = new Padding(8, 0, 8, 0);
+        pop.Click += (_, _) => { _sbQuery.Text = ""; ShowPopular(); };
+        chips.Controls.Add(pop);
         foreach (var c in Soundboard.Categories)
         {
             var b = Theme.Button(c, minWidth: 0); b.MinimumSize = new Size(0, 28); b.Font = Small; b.Margin = new Padding(0, 0, 6, 6);
@@ -116,6 +119,23 @@ public sealed partial class MainForm
         FillSoundDevices();
         SyncVolumeUi();
         RefreshBoard();
+        if (_sbResults.Items.Count == 0) ShowPopular();
+    }
+
+    /// <summary>The built-in popular list: what people see before they search.</summary>
+    void ShowPopular()
+    {
+        _sbSearchCts?.Cancel();
+        FillResults(Soundboard.Popular());
+        _sbStatus.Text = "Popular sounds. Double-click to add, or search for anything else.";
+    }
+
+    void FillResults(List<SoundInfo> list)
+    {
+        _sbResults.BeginUpdate(); _sbResults.Items.Clear();
+        foreach (var s in list)
+            _sbResults.Items.Add(new ListViewItem(new[] { s.ShortTitle + (S.Sounds.Any(x => x.Id == s.Id) ? "   ✓" : ""), s.LengthText, s.License }) { Tag = s });
+        _sbResults.EndUpdate();
     }
 
     void SyncVolumeUi() { for (int i = 0; i < 4; i++) SetSegment(_sbVol[i], S.SoundVolume == (i + 1) * 25); }
@@ -165,10 +185,7 @@ public sealed partial class MainForm
         {
             var list = await Soundboard.SearchAsync(q, 1, cts.Token);
             if (cts.IsCancellationRequested) return;
-            _sbResults.BeginUpdate(); _sbResults.Items.Clear();
-            foreach (var s in list)
-                _sbResults.Items.Add(new ListViewItem(new[] { s.ShortTitle + (S.Sounds.Any(x => x.Id == s.Id) ? "   ✓" : ""), s.LengthText, s.License }) { Tag = s });
-            _sbResults.EndUpdate();
+            FillResults(list);
             _sbStatus.Text = list.Count == 0 ? $"Nothing for \"{q}\". Try a simpler word." : $"{list.Count} sounds. Double-click to add; Preview plays it on this PC only.";
         }
         catch (OperationCanceledException) { }

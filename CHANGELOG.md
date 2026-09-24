@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.3.1
+- **Popular sounds first.** The Soundboard's Find sounds list now opens on 30 classic streamer sounds before you search: air horn, sad trombone, ba dum tss, drum roll, applause, crowd laugh, crickets, wrong buzzer, victory fanfare, cha-ching, dun dun dun, ta-da, game over, level up and more. One short, clean version of each, all CC0 or CC BY, built into the app so the list appears instantly. The Popular chip brings it back after a search.
+
 ## 1.3.0
 - **Soundboard.** A new page. Search a catalogue of Creative Commons sounds (Openverse, which covers Freesound, Wikimedia and more), or tap a category such as air horn, applause, laugh or drum roll, preview a sound, and add it to your board. It downloads once and is saved on the PC, so it plays instantly after that. No files to find or name yourself.
 - **Plays on both PCs.** Pressing a sound on either PC plays it there and tells the other PC to play it too; the other PC fetches it the first time and adds it to its own board, so the two boards stay the same.
