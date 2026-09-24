@@ -542,8 +542,7 @@ public sealed partial class MainForm : Form
         ShutdownOverlay();
         ShutdownFiles();
         ShutdownAudio();
-        Soundboard.StopAll();
-        _audioSession?.ClearMix();
+        StopAllSounds(broadcast: false);
         ReleaseMicMute();
         foreach (var h in _sbHolds.Values.Where(x => x.local).ToList()) Native.InjectUp(h.b);   // never leave a key down here
         Disc.Dispose();

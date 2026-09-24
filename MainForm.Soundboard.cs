@@ -12,6 +12,8 @@ public sealed partial class MainForm
     readonly CheckBox _sbBoth = Theme.Check("Play on both PCs");
     readonly CheckBox _sbMuteMic = Theme.Check("Mute my mic while a sound plays");
     int _micMuteCount;
+    /// <summary>Bumped by Stop all: a press still downloading or waiting for push-to-talk sees it changed and never starts.</summary>
+    int _sbStopGen;
     bool _micMutedByUs;
     readonly ComboBox _sbDevice = Theme.ComboBox();
     readonly ComboBox _sbDevice2 = Theme.ComboBox();
@@ -52,7 +54,7 @@ public sealed partial class MainForm
         _sbBoth.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundBothPcs = _sbBoth.Checked; S.Save(); };
         _sbMuteMic.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundMuteMic = _sbMuteMic.Checked; S.Save(); };
         tg.Controls.Add(_sbEnabled); tg.Controls.Add(_sbBoth); tg.Controls.Add(_sbMuteMic);
-        tg.Controls.Add(On(Theme.Button("Stop all sounds"), () => { Soundboard.StopAll(); _audioSession?.ClearMix(); }));
+        tg.Controls.Add(On(Theme.Button("Stop all sounds"), () => StopAllSounds(broadcast: true)));
         oT.Controls.Add(tg, 0, 0); oT.SetColumnSpan(tg, 4);
         oT.Controls.Add(Theme.Label("Play into"), 0, 1);
         _sbDevice.Dock = DockStyle.Fill; _sbDevice.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -293,6 +295,17 @@ public sealed partial class MainForm
         Activity($"→  released {b.ActionText} on {PeerName()}", flash: false);
     }
 
+    /// <summary>Stop everything: playing sounds, sounds in the mic, presses not started yet, and (asked) the other PC's too.</summary>
+    void StopAllSounds(bool broadcast)
+    {
+        _sbStopGen++;
+        Soundboard.StopAll();
+        _audioSession?.ClearMix();
+        if (broadcast && S.SoundBothPcs && S.PeerHost.Length > 0) Link.SendSound(S.PeerHost, S.Port, StopMessage);
+        SetStatus("All sounds stopped.");
+    }
+    const string StopMessage = "STOP";
+
     // ---- "mute my mic while a sound plays" ----
     // Streaming PC: the mic stops being sent to the gaming PC, and the capture device itself is muted in
     // Windows so Discord / OBS on this PC go quiet too; its own mute state is put back afterwards.
@@ -406,6 +419,7 @@ public sealed partial class MainForm
     /// <summary>Play here and, when asked, tell the other PC to play it too (it downloads the sound itself the first time).</summary>
     async Task PlaySound(SoundInfo s, bool broadcast, bool preview = false, bool origin = false)
     {
+        int gen = _sbStopGen;
         if (!S.Enabled && !preview) { SetStatus("Paused - resume to play sounds."); return; }
         if (!S.SoundboardEnabled && !preview) { SetStatus("The soundboard is off."); return; }
         if (broadcast && S.PeerHost.Length > 0)
@@ -418,6 +432,7 @@ public sealed partial class MainForm
         {
             if (!Soundboard.IsCached(s)) SetStatus($"Downloading {s.ShortTitle}…");
             var path = await Soundboard.EnsureAsync(s);
+            if (gen != _sbStopGen) return;   // Stop all was pressed while it downloaded
             // only the PC where the button was pressed holds the key, so "both PCs" never presses it twice
             var hold = origin && !preview ? ResolveHold(s) : null;
             var targets = hold == null ? new List<bool>() : HoldTargets();
@@ -425,6 +440,7 @@ public sealed partial class MainForm
             bool mute = !preview && S.SoundMuteMic;
             if (mute) MicMuteBegin();
             if (targets.Count > 0) await Task.Delay(150);   // open push-to-talk before the first syllable
+            if (gen != _sbStopGen) { foreach (var local in targets) EndHold(hold!, local); if (mute) MicMuteEnd(); return; }
             void Release() { foreach (var local in targets) EndHold(hold!, local); if (mute) MicMuteEnd(); }
             try
             {
@@ -451,6 +467,7 @@ public sealed partial class MainForm
 
     void OnSoundFromPeer(string json, IPEndPoint from)
     {
+        if (json == StopMessage) { StopAllSounds(broadcast: false); return; }
         if (!S.Enabled || !S.SoundboardEnabled || !S.SoundBothPcs) return;
         SoundInfo? s;
         try { s = JsonSerializer.Deserialize<SoundInfo>(json); } catch { return; }

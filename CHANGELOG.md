@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.5.2
+- **Stop all sounds stops everything.** It missed three kinds of sound: one still downloading the first time it was pressed (it started when the download finished), one waiting the 150 ms for push-to-talk to open, and, with Play on both PCs on, everything on the other PC. Now a stop cancels presses that have not started yet and tells the other PC to stop too.
+
 ## 1.5.1
 - **On the streaming PC the soundboard plays into your microphone.** A new Play into choice, **My microphone**, now the default on the streaming PC, mixes the sound into the microphone the audio bridge sends to the gaming PC, so it arrives in CABLE together with your voice and the game and Discord hear both. It needs the audio bridge running. With Play on both PCs on, the gaming PC no longer also plays a sound into CABLE when the streaming PC already put it in the mic, so nothing is heard twice. Stop all stops mic sounds too, and Mute my mic still silences your voice while leaving the sound in.
 
