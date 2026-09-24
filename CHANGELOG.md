@@ -2,6 +2,12 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.6.0
+- **The board comes first.** On the Soundboard page your board is now large and on top, next to Find sounds, with the Output settings underneath. Sound buttons are bigger.
+- **Hover a sound and press Delete or Backspace** to take it off the board (ignored while you are typing in the search box). Right-click → Remove still works.
+- **Longer sounds and music.** Find sounds has a length choice: Short (effects under a minute, as before), Long (anything up to 10 minutes) and Music (Creative Commons tracks from Jamendo, up to 10 minutes). All still limited to licences that are fine on a monetised stream.
+- **Long sounds start at once.** A sound over 20 seconds that is not saved yet now streams straight from the web when pressed, and is saved in the background for next time, instead of waiting for the whole file to download.
+
 ## 1.5.2
 - **Stop all sounds stops everything.** It missed three kinds of sound: one still downloading the first time it was pressed (it started when the download finished), one waiting the 150 ms for push-to-talk to open, and, with Play on both PCs on, everything on the other PC. Now a stop cancels presses that have not started yet and tells the other PC to stop too.
 

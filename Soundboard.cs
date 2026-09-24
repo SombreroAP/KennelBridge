@@ -66,13 +66,16 @@ public static class Soundboard
     }
 
     /// <summary>Search the catalogue. Short sounds first; nothing longer than a minute.</summary>
-    public static async Task<List<SoundInfo>> SearchAsync(string query, int page = 1, CancellationToken ct = default)
+    public enum Length { Short, Long, Music }
+
+    public static async Task<List<SoundInfo>> SearchAsync(string query, int page = 1, CancellationToken ct = default, Length length = Length.Short)
     {
         // anonymous requests are capped at 20 per page: take two pages
         var list = new List<SoundInfo>();
         for (int pg = page * 2 - 1; pg <= page * 2; pg++)
         {
-            var url = $"https://api.openverse.org/v1/audio/?q={Uri.EscapeDataString(query)}&page_size=20&page={pg}&license=cc0,by,by-sa&mature=false";
+            var url = $"https://api.openverse.org/v1/audio/?q={Uri.EscapeDataString(query)}&page_size=20&page={pg}&license=cc0,by,by-sa&mature=false"
+                + (length == Length.Music ? "&source=jamendo" : "");
             JsonDocument doc;
             try
             {
@@ -82,20 +85,21 @@ public static class Soundboard
             }
             catch when (pg != page * 2 - 1) { break; }
             using var _ = doc;
-            ReadResults(doc, list);
+            ReadResults(doc, list, length == Length.Short ? 60000 : 600000);
             if (!doc.RootElement.TryGetProperty("page_count", out var pc) || pc.ValueKind != JsonValueKind.Number || pc.GetInt32() <= pg) break;
         }
-        return list.GroupBy(x => x.Id).Select(g => g.First()).OrderBy(x => x.DurationMs <= 0 ? int.MaxValue : x.DurationMs).ToList();
+        var all = list.GroupBy(x => x.Id).Select(g => g.First());
+        return length == Length.Short ? all.OrderBy(x => x.DurationMs <= 0 ? int.MaxValue : x.DurationMs).ToList() : all.ToList();   // long / music keep the catalogue's relevance order
     }
 
-    static void ReadResults(JsonDocument doc, List<SoundInfo> list)
+    static void ReadResults(JsonDocument doc, List<SoundInfo> list, int maxMs)
     {
         foreach (var r in doc.RootElement.GetProperty("results").EnumerateArray())
         {
             string S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
             int dur = r.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetInt32() : 0;
             var u = S("url");
-            if (u.Length == 0 || (dur > 60000)) continue;
+            if (u.Length == 0 || dur > maxMs) continue;
             var lic = S("license"); var ver = S("license_version");
             list.Add(new SoundInfo
             {
@@ -115,6 +119,9 @@ public static class Soundboard
     }
 
     public static bool IsCached(SoundInfo s) => File.Exists(PathFor(s));
+
+    /// <summary>Long sounds are not worth waiting for: stream them from the web the first time (and save in the background).</summary>
+    public static bool StreamFirst(SoundInfo s) => !IsCached(s) && (s.DurationMs == 0 || s.DurationMs > 20000);
 
     /// <summary>The local file, downloading it the first time.</summary>
     public static async Task<string> EnsureAsync(SoundInfo s, CancellationToken ct = default)

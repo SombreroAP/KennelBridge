@@ -39,11 +39,34 @@ public sealed partial class MainForm
     /// <summary>A choice in the "hold while playing" lists: a hotkey row, or none, or the board default.</summary>
     sealed record HoldChoice(string? Key, string Text) { public override string ToString() => Text; }
     CancellationTokenSource? _sbSearchCts;
+    SoundInfo? _sbHover;
+    Soundboard.Length _sbLength = Soundboard.Length.Short;
+    readonly Button[] _sbLen = { Theme.Button("Short", minWidth: 0), Theme.Button("Long", minWidth: 0), Theme.Button("Music", minWidth: 0) };   // the board button under the mouse, for Delete / Backspace
+
+    /// <summary>Delete or Backspace over a board sound removes it (not while typing in a box).</summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if ((keyData == Keys.Delete || keyData == Keys.Back) && _currentPage == PageSounds && _sbHover is SoundInfo s
+            && ActiveControl is not TextBoxBase && ActiveControl is not System.Windows.Forms.ComboBox)
+        {
+            RemoveSound(s);
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    void RemoveSound(SoundInfo s)
+    {
+        S.Sounds.RemoveAll(x => x.Id == s.Id); S.Save();
+        _sbHover = null;
+        RefreshBoard();
+        SetStatus($"Removed {s.ShortTitle} from the board.");
+    }
     const string DefaultDevice = "Windows default output";
 
     Control BuildSoundboardPage()
     {
-        var col = Rows(240, -1);
+        var col = Rows(-1, 240);   // the board on top, settings underneath
 
         var outCard = new Card("Output") { Dock = DockStyle.Fill };
         var oT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2 };
@@ -89,13 +112,14 @@ public sealed partial class MainForm
         _sbHoldHere.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundHoldAlsoHere = _sbHoldHere.Checked; S.Save(); };
         oT.Controls.Add(_sbHoldHere, 2, 2); oT.SetColumnSpan(_sbHoldHere, 2);
         outCard.Controls.Add(oT);
-        col.Controls.Add(outCard, 0, 0);
+        outCard.Margin = new Padding(0);
 
         var split = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0) };
-        split.ColumnStyles.Add(Cpct(50)); split.ColumnStyles.Add(Cpct(50));
+        split.ColumnStyles.Add(Cpct(62)); split.ColumnStyles.Add(Cpct(38));
+        split.Margin = new Padding(0, 0, 0, 16);
         split.RowStyles.Add(Pct(100));
 
-        var board = new Card("Your board") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0), Hint = "right-click a sound for more" };
+        var board = new Card("Your board") { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0), Hint = "hover + Delete removes · right-click for more" };
         var bT = Rows(-1, 28);
         bT.Controls.Add(_sbBoard, 0, 0);
         _sbEmpty.Margin = new Padding(2, 8, 0, 0);
@@ -105,11 +129,11 @@ public sealed partial class MainForm
         _sbMenu.Items.Add(_sbHoldMenu);
         _sbMenu.Opening += (_, _) => FillHoldMenu();
         _sbMenu.Items.Add("Copy credit line", null, (_, _) => { if (_sbMenu.Tag is SoundInfo s) { try { Clipboard.SetText(s.Attribution); SetStatus("Credit copied."); } catch { } } });
-        _sbMenu.Items.Add("Remove from board", null, (_, _) => { if (_sbMenu.Tag is SoundInfo s) { S.Sounds.RemoveAll(x => x.Id == s.Id); S.Save(); RefreshBoard(); } });
+        _sbMenu.Items.Add("Remove from board", null, (_, _) => { if (_sbMenu.Tag is SoundInfo s) RemoveSound(s); });
         split.Controls.Add(board, 0, 0);
 
         var find = new Card("Find sounds") { Dock = DockStyle.Fill, Margin = new Padding(8, 0, 0, 0), Hint = "Creative Commons, via Openverse" };
-        var fT = Rows(40, 112, -1, 42, 26);
+        var fT = Rows(40, 40, 112, -1, 42, 26);
         var sr = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0) };
         sr.ColumnStyles.Add(Cpct(100)); sr.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         _sbQuery.Dock = DockStyle.Fill;
@@ -119,6 +143,19 @@ public sealed partial class MainForm
         go.Click += (_, _) => _ = Search(_sbQuery.Text);
         sr.Controls.Add(go, 1, 0);
         fT.Controls.Add(sr, 0, 0);
+        var len = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = new Padding(0, 4, 0, 2) };
+        for (int i = 0; i < 3; i++)
+        {
+            len.ColumnStyles.Add(Cpct(33.3f));
+            var m = (Soundboard.Length)i; var b = _sbLen[i];
+            b.Dock = DockStyle.Fill; b.AutoSize = false; b.Margin = new Padding(0, 0, 4, 0); b.MinimumSize = new Size(0, 30);
+            b.Click += (_, _) => { _sbLength = m; SyncLengthUi(); if (_sbQuery.Text.Trim().Length > 0) _ = Search(_sbQuery.Text); };
+            len.Controls.Add(b, i, 0);
+        }
+        new ToolTip().SetToolTip(_sbLen[0], "Effects under a minute");
+        new ToolTip().SetToolTip(_sbLen[1], "Anything up to 10 minutes");
+        new ToolTip().SetToolTip(_sbLen[2], "Creative Commons music tracks (Jamendo), up to 10 minutes");
+        fT.Controls.Add(len, 0, 1);
         var chips = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
         var pop = Theme.Button("Popular", primary: true, minWidth: 0); pop.MinimumSize = new Size(0, 28); pop.Font = Small; pop.Margin = new Padding(0, 0, 6, 6); pop.Padding = new Padding(8, 0, 8, 0);
         pop.Click += (_, _) => { _sbQuery.Text = ""; ShowPopular(); };
@@ -130,22 +167,23 @@ public sealed partial class MainForm
             b.Click += (_, _) => { _sbQuery.Text = c; _ = Search(c); };
             chips.Controls.Add(b);
         }
-        fT.Controls.Add(chips, 0, 1);
+        fT.Controls.Add(chips, 0, 2);
         StyleList(_sbResults);
         _sbResults.Dock = DockStyle.Fill;
         _sbResults.Columns.Add("Sound", 220); _sbResults.Columns.Add("Length", 70); _sbResults.Columns.Add("Licence", 90);
         _sbResults.Resize += (_, _) => FitColumns(_sbResults);
         _sbResults.DoubleClick += (_, _) => AddSelected();
-        fT.Controls.Add(_sbResults, 0, 2);
+        fT.Controls.Add(_sbResults, 0, 3);
         var fb = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 6, 0, 0) };
         fb.Controls.Add(On(Theme.Button("Add to board", primary: true), AddSelected));
         fb.Controls.Add(On(Theme.Button("Preview"), () => { if (_sbResults.SelectedItems.Count > 0 && _sbResults.SelectedItems[0].Tag is SoundInfo s) _ = PlaySound(s, broadcast: false, preview: true); }));
-        fT.Controls.Add(fb, 0, 3);
+        fT.Controls.Add(fb, 0, 4);
         _sbStatus.AutoSize = false; _sbStatus.Dock = DockStyle.Fill; _sbStatus.AutoEllipsis = true; _sbStatus.TextAlign = ContentAlignment.MiddleLeft;
-        fT.Controls.Add(_sbStatus, 0, 4);
+        fT.Controls.Add(_sbStatus, 0, 5);
         find.Controls.Add(fT);
         split.Controls.Add(find, 1, 0);
-        col.Controls.Add(split, 0, 1);
+        col.Controls.Add(split, 0, 0);
+        col.Controls.Add(outCard, 0, 1);
         return col;
     }
 
@@ -174,6 +212,7 @@ public sealed partial class MainForm
         _sbMuteMic.Checked = S.SoundMuteMic;
         _sbHoldHere.Visible = S.Role != PcRole.Gaming;   // on the gaming PC the key is pressed here anyway
         SyncVolumeUi();
+        SyncLengthUi();
         RefreshBoard();
         if (_sbResults.Items.Count == 0) ShowPopular();
     }
@@ -341,6 +380,8 @@ public sealed partial class MainForm
     /// <summary>On exit: never leave the mic muted.</summary>
     void ReleaseMicMute() { if (_micMuteCount > 0) { _micMuteCount = 1; MicMuteEnd(); } }
 
+    void SyncLengthUi() { for (int i = 0; i < 3; i++) SetSegment(_sbLen[i], (int)_sbLength == i); }
+
     void SyncVolumeUi() { for (int i = 0; i < 4; i++) SetSegment(_sbVol[i], S.SoundVolume == (i + 1) * 25); }
 
     /// <summary>Output list; the gaming PC defaults to CABLE Input so the game and Discord hear the sound in the mic.</summary>
@@ -377,7 +418,9 @@ public sealed partial class MainForm
         foreach (var s in S.Sounds)
         {
             var b = Theme.Button(s.ShortTitle, minWidth: 0);
-            b.AutoSize = false; b.Size = new Size(Theme.S(this, 150), Theme.S(this, 48)); b.Margin = new Padding(0, 0, 8, 8);
+            b.AutoSize = false; b.Size = new Size(Theme.S(this, 176), Theme.S(this, 64)); b.Margin = new Padding(0, 0, 10, 10);
+            b.MouseEnter += (_, _) => _sbHover = s;
+            b.MouseLeave += (_, _) => { if (_sbHover == s) _sbHover = null; };
             b.Tag = s;
             new ToolTip().SetToolTip(b, $"{s.Title}\n{s.LengthText} · {s.License}\n{s.Attribution}");
             b.Click += (_, _) => _ = PlaySound(s, broadcast: S.SoundBothPcs, origin: true);
@@ -396,7 +439,7 @@ public sealed partial class MainForm
         _sbStatus.Text = $"Searching for \"{q}\"…";
         try
         {
-            var list = await Soundboard.SearchAsync(q, 1, cts.Token);
+            var list = await Soundboard.SearchAsync(q, 1, cts.Token, _sbLength);
             if (cts.IsCancellationRequested) return;
             FillResults(list);
             _sbStatus.Text = list.Count == 0 ? $"Nothing for \"{q}\". Try a simpler word." : $"{list.Count} sounds. Double-click to add; Preview plays it on this PC only.";
@@ -413,7 +456,7 @@ public sealed partial class MainForm
         RefreshBoard();
         _sbResults.SelectedItems[0].Text = s.ShortTitle + "   ✓";
         _sbStatus.Text = $"Added {s.ShortTitle}. Downloading it now so it plays instantly…";
-        _ = Soundboard.EnsureAsync(s).ContinueWith(t => BeginInvoke(() => _sbStatus.Text = t.IsFaulted ? "Download failed: " + t.Exception?.GetBaseException().Message : $"{s.ShortTitle} is saved on this PC."));
+        _ = Soundboard.EnsureAsync(s).ContinueWith(t => { if (IsHandleCreated) BeginInvoke(() => _sbStatus.Text = t.IsFaulted ? "Download failed: " + t.Exception?.GetBaseException().Message : $"{s.ShortTitle} is saved on this PC."); });
     }
 
     /// <summary>Play here and, when asked, tell the other PC to play it too (it downloads the sound itself the first time).</summary>
@@ -430,8 +473,17 @@ public sealed partial class MainForm
         }
         try
         {
-            if (!Soundboard.IsCached(s)) SetStatus($"Downloading {s.ShortTitle}…");
-            var path = await Soundboard.EnsureAsync(s);
+            string path;
+            if (Soundboard.StreamFirst(s))
+            {
+                path = s.Url;   // Media Foundation plays straight from the web; the file is saved for next time meanwhile
+                _ = Soundboard.EnsureAsync(s).ContinueWith(_ => { });
+            }
+            else
+            {
+                if (!Soundboard.IsCached(s)) SetStatus($"Downloading {s.ShortTitle}…");
+                path = await Soundboard.EnsureAsync(s);
+            }
             if (gen != _sbStopGen) return;   // Stop all was pressed while it downloaded
             // only the PC where the button was pressed holds the key, so "both PCs" never presses it twice
             var hold = origin && !preview ? ResolveHold(s) : null;
