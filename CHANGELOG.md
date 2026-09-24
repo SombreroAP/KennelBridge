@@ -2,6 +2,10 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.4.0
+- **Hold a key on the other PC while a sound plays.** Pick any row from your Hotkeys list under Soundboard → Output → While playing, and the PC you press the sound on holds that row's key on the other PC for exactly as long as the sound lasts. Use it to route a sound into the right in-game channel: play on the streaming PC, the sound reaches the gaming PC through CABLE, and the game's proximity-chat or push-to-talk key is held there at the same time. Right-click a sound → Hold while playing to give one sound its own key or none.
+- The key goes down 150 ms before the sound starts, so push-to-talk is open for the first syllable, and is released 200 ms after it ends. It is kept alive the same way hold rows are, so if the link drops the other PC lets go within half a second. Overlapping sounds that hold the same key share one hold, and with Play on both PCs only the PC you pressed on sends it.
+
 ## 1.3.1
 - **Popular sounds first.** The Soundboard's Find sounds list now opens on 30 classic streamer sounds before you search: air horn, sad trombone, ba dum tss, drum roll, applause, crowd laugh, crickets, wrong buzzer, victory fanfare, cha-ching, dun dun dun, ta-da, game over, level up and more. One short, clean version of each, all CC0 or CC BY, built into the app so the list appears instantly. The Popular chip brings it back after a search.
 

@@ -98,6 +98,7 @@ public sealed class Settings
     public string? SoundDeviceId { get; set; }            // null = Windows default; gaming PC defaults to CABLE Input
     public bool SoundDeviceSet { get; set; }              // the user picked a device (stop applying the default)
     public int SoundVolume { get; set; } = 75;
+    public string SoundHoldAction { get; set; } = "";   // a hotkey row held on the other PC while a sound plays ("" = none)
     public List<SoundInfo> Sounds { get; set; } = new();
 
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KennelBridge");

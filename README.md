@@ -56,6 +56,11 @@ go into **CABLE Input** by default, mixed with your streamed microphone, so the 
 them; on the streaming PC they go to the normal output for OBS. Only CC0, CC BY and CC BY-SA sounds
 are listed; right-click a sound to copy the credit line CC BY asks for (a stream description is fine).
 
+**Hold a key while a sound plays:** under Output → *While playing*, choose a row from your Hotkeys
+list (for example one whose action on the gaming PC is the game's proximity-chat key). The PC you
+press the sound on holds that key on the other PC for the length of the sound. Right-click a sound to
+give it its own key. The gaming PC must have the hotkey bridge on and set to receive (Both is fine).
+
 ## Problems
 
 **Collect diagnostics** on the Activity page (or in the tray menu) saves a zip to the Desktop with

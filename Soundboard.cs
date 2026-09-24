@@ -18,6 +18,8 @@ public sealed class SoundInfo
     public string Attribution { get; set; } = "";
     public int DurationMs { get; set; }
     public string Source { get; set; } = "";
+    /// <summary>Key held on the other PC while this sound plays: null = the board's default, "" = none, else a hotkey row's ActionKey.</summary>
+    public string? HoldAction { get; set; }
     [JsonIgnore] public string LengthText => DurationMs <= 0 ? "" : DurationMs < 60000 ? $"{DurationMs / 1000.0:0.0} s" : $"{DurationMs / 60000}:{DurationMs / 1000 % 60:00}";
     [JsonIgnore] public string ShortTitle => Soundboard.Tidy(Title);
 }
@@ -131,7 +133,7 @@ public static class Soundboard
     }
 
     /// <summary>Play a file on an output device (null = Windows default). Several can overlap.</summary>
-    public static void Play(string path, string? deviceId, float volume)
+    public static void Play(string path, string? deviceId, float volume, Action? ended = null)
     {
         var device = WindowsAudioDevices.Resolve(deviceId, DataFlow.Render) ?? throw new InvalidOperationException("No playback device.");
         var reader = new MediaFoundationReader(path);
@@ -143,6 +145,7 @@ public static class Soundboard
             lock (Gate) Playing.Remove(output);
             try { output.Dispose(); } catch { }
             reader.Dispose(); device.Dispose();
+            try { ended?.Invoke(); } catch { }
         };
         lock (Gate) Playing.Add(output);
         output.Play();

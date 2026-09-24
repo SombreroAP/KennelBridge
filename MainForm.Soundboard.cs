@@ -18,17 +18,23 @@ public sealed partial class MainForm
     readonly ListView _sbResults = new();
     readonly Label _sbStatus = Theme.Label("", muted: true, Theme.Small);
     readonly ContextMenuStrip _sbMenu = new();
+    readonly ComboBox _sbHold = Theme.ComboBox();
+    readonly ToolStripMenuItem _sbHoldMenu = new("Hold while playing");
+    readonly Dictionary<string, (Binding b, int n)> _sbHolds = new();
+
+    /// <summary>A choice in the "hold while playing" lists: a hotkey row, or none, or the board default.</summary>
+    sealed record HoldChoice(string? Key, string Text) { public override string ToString() => Text; }
     CancellationTokenSource? _sbSearchCts;
     const string DefaultDevice = "Windows default output";
 
     Control BuildSoundboardPage()
     {
-        var col = Rows(150, -1);
+        var col = Rows(196, -1);
 
         var outCard = new Card("Output") { Dock = DockStyle.Fill };
         var oT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2 };
         oT.ColumnStyles.Add(Cpx(110)); oT.ColumnStyles.Add(Cpct(60)); oT.ColumnStyles.Add(Cpx(80)); oT.ColumnStyles.Add(Cpct(40));
-        oT.RowStyles.Add(Px(40)); oT.RowStyles.Add(Px(40));
+        oT.RowStyles.Add(Px(40)); oT.RowStyles.Add(Px(40)); oT.RowStyles.Add(Px(44));
         var tg = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
         _sbEnabled.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundboardEnabled = _sbEnabled.Checked; S.Save(); };
         _sbBoth.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundBothPcs = _sbBoth.Checked; S.Save(); };
@@ -51,6 +57,14 @@ public sealed partial class MainForm
             vol.Controls.Add(b, i, 0);
         }
         oT.Controls.Add(vol, 3, 1);
+        oT.Controls.Add(Theme.Label("While playing"), 0, 2);
+        _sbHold.Dock = DockStyle.Fill; _sbHold.DropDownStyle = ComboBoxStyle.DropDownList; _sbHold.Margin = new Padding(0, 6, 0, 4);
+        _sbHold.DropDown += (_, _) => FillHoldChoices();
+        _sbHold.SelectedIndexChanged += (_, _) => { if (_loadingUi || _sbHold.SelectedItem is not HoldChoice c) return; S.SoundHoldAction = c.Key ?? ""; S.Save(); };
+        oT.Controls.Add(_sbHold, 1, 2);
+        var holdHint = Theme.Label("held on the other PC, e.g. the game's proximity-chat key", muted: true, Small);
+        holdHint.AutoSize = false; holdHint.Dock = DockStyle.Fill; holdHint.AutoEllipsis = true; holdHint.TextAlign = ContentAlignment.MiddleLeft;
+        oT.Controls.Add(holdHint, 2, 2); oT.SetColumnSpan(holdHint, 2);
         outCard.Controls.Add(oT);
         col.Controls.Add(outCard, 0, 0);
 
@@ -65,6 +79,8 @@ public sealed partial class MainForm
         bT.Controls.Add(Theme.Label("Sounds are saved on this PC after the first play.", muted: true, Theme.Small), 0, 1);
         board.Controls.Add(bT);
         _sbMenu.Items.Add("Preview on this PC only", null, (_, _) => { if (_sbMenu.Tag is SoundInfo s) _ = PlaySound(s, broadcast: false, preview: true); });
+        _sbMenu.Items.Add(_sbHoldMenu);
+        _sbMenu.Opening += (_, _) => FillHoldMenu();
         _sbMenu.Items.Add("Copy credit line", null, (_, _) => { if (_sbMenu.Tag is SoundInfo s) { try { Clipboard.SetText(s.Attribution); SetStatus("Credit copied."); } catch { } } });
         _sbMenu.Items.Add("Remove from board", null, (_, _) => { if (_sbMenu.Tag is SoundInfo s) { S.Sounds.RemoveAll(x => x.Id == s.Id); S.Save(); RefreshBoard(); } });
         split.Controls.Add(board, 0, 0);
@@ -117,6 +133,7 @@ public sealed partial class MainForm
         _sbEnabled.Checked = S.SoundboardEnabled;
         _sbBoth.Checked = S.SoundBothPcs;
         FillSoundDevices();
+        FillHoldChoices();
         SyncVolumeUi();
         RefreshBoard();
         if (_sbResults.Items.Count == 0) ShowPopular();
@@ -136,6 +153,79 @@ public sealed partial class MainForm
         foreach (var s in list)
             _sbResults.Items.Add(new ListViewItem(new[] { s.ShortTitle + (S.Sounds.Any(x => x.Id == s.Id) ? "   ✓" : ""), s.LengthText, s.License }) { Tag = s });
         _sbResults.EndUpdate();
+    }
+
+    IEnumerable<HoldChoice> HoldRows() => S.Bindings.GroupBy(b => b.ActionKey).Select(g => new HoldChoice(g.Key, $"Hold {g.First().DisplayAction}"));
+
+    void FillHoldChoices()
+    {
+        bool loading = _loadingUi; _loadingUi = true;
+        try
+        {
+            var items = new List<HoldChoice> { new("", "Hold nothing") };
+            items.AddRange(HoldRows());
+            if (S.Bindings.Count == 0) items.Add(new("", "(add rows on the Hotkeys page first)"));
+            _sbHold.Items.Clear(); foreach (var i in items) _sbHold.Items.Add(i);
+            _sbHold.SelectedItem = items.FirstOrDefault(i => i.Key == S.SoundHoldAction && i.Text != "(add rows on the Hotkeys page first)") ?? items[0];
+        }
+        finally { _loadingUi = loading; }
+    }
+
+    /// <summary>Right-click → Hold while playing: this sound's own choice, over the board default.</summary>
+    void FillHoldMenu()
+    {
+        _sbHoldMenu.DropDownItems.Clear();
+        if (_sbMenu.Tag is not SoundInfo s) return;
+        var choices = new List<HoldChoice> { new(null, "Board default"), new("", "Nothing") };
+        choices.AddRange(HoldRows());
+        foreach (var c in choices)
+        {
+            var it = new ToolStripMenuItem(c.Text) { Checked = s.HoldAction == c.Key };
+            it.Click += (_, _) => { s.HoldAction = c.Key; S.Save(); };
+            _sbHoldMenu.DropDownItems.Add(it);
+        }
+    }
+
+    Binding? ResolveHold(SoundInfo s)
+    {
+        var key = s.HoldAction ?? S.SoundHoldAction;
+        return string.IsNullOrEmpty(key) ? null : S.Bindings.FirstOrDefault(b => b.ActionKey == key);
+    }
+
+    // ---- holding a key on the other PC for as long as sounds play ----
+    // Same protocol as a hold row on the Hotkeys page: Down, a Down every 100 ms to keep it alive (the other
+    // PC releases by itself after 500 ms of silence, so nothing sticks), then Up twice. Overlapping sounds
+    // that hold the same key share one hold.
+
+    void BeginHold(Binding b)
+    {
+        var k = b.ActionKey;
+        if (_sbHolds.TryGetValue(k, out var h)) { _sbHolds[k] = (h.b, h.n + 1); return; }
+        _sbHolds[k] = (b, 1);
+        Link.SendHotkey(S.PeerHost, S.Port, b, PressState.Down);
+        Activity($"→  holding {b.ActionText} on {PeerName()} while the sound plays", flash: false);
+        _ = KeepHold(k);
+    }
+
+    async Task KeepHold(string k)
+    {
+        while (_sbHolds.TryGetValue(k, out var h))
+        {
+            await Task.Delay(100);
+            if (_sbHolds.ContainsKey(k)) Link.SendHotkey(S.PeerHost, S.Port, h.b, PressState.Down);
+        }
+    }
+
+    async void EndHold(Binding b)
+    {
+        await Task.Delay(200);   // let the tail of the sound through before the channel closes
+        var k = b.ActionKey;
+        if (!_sbHolds.TryGetValue(k, out var h)) return;
+        if (h.n > 1) { _sbHolds[k] = (h.b, h.n - 1); return; }
+        _sbHolds.Remove(k);
+        Link.SendHotkey(S.PeerHost, S.Port, b, PressState.Up);
+        Link.SendHotkey(S.PeerHost, S.Port, b, PressState.Up);
+        Activity($"→  released {b.ActionText} on {PeerName()}", flash: false);
     }
 
     void SyncVolumeUi() { for (int i = 0; i < 4; i++) SetSegment(_sbVol[i], S.SoundVolume == (i + 1) * 25); }
@@ -167,7 +257,7 @@ public sealed partial class MainForm
             b.AutoSize = false; b.Size = new Size(Theme.S(this, 150), Theme.S(this, 48)); b.Margin = new Padding(0, 0, 8, 8);
             b.Tag = s;
             new ToolTip().SetToolTip(b, $"{s.Title}\n{s.LengthText} · {s.License}\n{s.Attribution}");
-            b.Click += (_, _) => _ = PlaySound(s, broadcast: S.SoundBothPcs);
+            b.Click += (_, _) => _ = PlaySound(s, broadcast: S.SoundBothPcs, origin: true);
             b.MouseUp += (_, e) => { if (e.Button == MouseButtons.Right) { _sbMenu.Tag = s; _sbMenu.Show(b, e.Location); } };
             _sbBoard.Controls.Add(b);
         }
@@ -204,7 +294,7 @@ public sealed partial class MainForm
     }
 
     /// <summary>Play here and, when asked, tell the other PC to play it too (it downloads the sound itself the first time).</summary>
-    async Task PlaySound(SoundInfo s, bool broadcast, bool preview = false)
+    async Task PlaySound(SoundInfo s, bool broadcast, bool preview = false, bool origin = false)
     {
         if (!S.Enabled && !preview) { SetStatus("Paused - resume to play sounds."); return; }
         if (!S.SoundboardEnabled && !preview) { SetStatus("The soundboard is off."); return; }
@@ -213,7 +303,11 @@ public sealed partial class MainForm
         {
             if (!Soundboard.IsCached(s)) SetStatus($"Downloading {s.ShortTitle}…");
             var path = await Soundboard.EnsureAsync(s);
-            Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f);
+            // only the PC where the button was pressed holds the key, so "both PCs" never presses it twice
+            var hold = origin && !preview && S.PeerHost.Length > 0 ? ResolveHold(s) : null;
+            if (hold != null) { BeginHold(hold); await Task.Delay(150); }   // open push-to-talk before the first syllable
+            try { Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f, hold == null ? null : () => BeginInvoke(() => EndHold(hold))); }
+            catch { if (hold != null) EndHold(hold); throw; }
             if (!preview) Activity($"Sound: {s.ShortTitle}{(broadcast ? "  (and on " + PeerName() + ")" : "")}", flash: true);
         }
         catch (Exception ex) { Activity($"Sound {s.ShortTitle} could not play: {ex.Message}", flash: false); }
