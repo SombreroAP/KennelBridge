@@ -128,8 +128,11 @@ public sealed partial class MainForm
         SetSegment(_segStreaming, S.Role == PcRole.Streaming);
     }
 
+    DateTime _rowsSentAt = DateTime.MinValue;
+
     void RefreshPeers()
     {
+        if ((DateTime.UtcNow - _rowsSentAt).TotalSeconds >= 15) SendRows();   // so a PC that starts later catches up
         Disc.Prune();
         var peers = Disc.Peers.Values.OrderBy(p => p.Name).ToList();
         var sig = string.Join("|", peers.Select(p => p.ToString())) + S.StreamerMode;

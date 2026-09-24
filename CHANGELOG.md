@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.4.1
+- **Hold list shows both PCs' hotkeys.** The two PCs now share their Hotkeys lists over the link (whenever a row changes, and every 15 seconds so a PC started later catches up), and Soundboard → While playing lists every row from both, each labelled with where its key is pressed: this PC's rows press their key on the other PC, the other PC's rows press theirs here. So a sound played on either PC can hold a key on either PC. The per-sound right-click choice lists the same rows.
+
 ## 1.4.0
 - **Hold a key on the other PC while a sound plays.** Pick any row from your Hotkeys list under Soundboard → Output → While playing, and the PC you press the sound on holds that row's key on the other PC for exactly as long as the sound lasts. Use it to route a sound into the right in-game channel: play on the streaming PC, the sound reaches the gaming PC through CABLE, and the game's proximity-chat or push-to-talk key is held there at the same time. Right-click a sound → Hold while playing to give one sound its own key or none.
 - The key goes down 150 ms before the sound starts, so push-to-talk is open for the first syllable, and is released 200 ms after it ends. It is kept alive the same way hold rows are, so if the link drops the other PC lets go within half a second. Overlapping sounds that hold the same key share one hold, and with Play on both PCs only the PC you pressed on sends it.

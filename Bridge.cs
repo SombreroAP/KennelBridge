@@ -15,7 +15,7 @@ namespace KennelBridge;
 /// </summary>
 public sealed class Bridge : IDisposable
 {
-    const string PingMagic = "KNLP", HotkeyMagic = "KNLK", InputMagic = "KNLI", SoundMagic = "KNLS";
+    const string PingMagic = "KNLP", HotkeyMagic = "KNLK", InputMagic = "KNLI", SoundMagic = "KNLS", RowsMagic = "KNLR";
 
     UdpClient? _udp;
     CancellationTokenSource? _cts;
@@ -30,6 +30,8 @@ public sealed class Bridge : IDisposable
     public event Action<string, IPEndPoint>? InputReceived;
     /// <summary>The other PC played a sound (JSON SoundInfo). Thread-pool thread.</summary>
     public event Action<string, IPEndPoint>? SoundReceived;
+    /// <summary>The other PC's hotkey rows (JSON list of Binding). Thread-pool thread.</summary>
+    public event Action<string, IPEndPoint>? RowsReceived;
     public bool Listening => _udp != null;
 
     public void Start(int port)
@@ -78,7 +80,7 @@ public sealed class Bridge : IDisposable
         string text;
         try { text = Encoding.UTF8.GetString(r.Buffer); } catch { return; }
         var p = text.Split('\t');
-        if (p.Length < 3 || p[0] is not (PingMagic or HotkeyMagic or InputMagic or SoundMagic)) return;   // not ours; ignore silently
+        if (p.Length < 3 || p[0] is not (PingMagic or HotkeyMagic or InputMagic or SoundMagic or RowsMagic)) return;   // not ours; ignore silently
         if (!string.Equals(p[1], Passphrase, StringComparison.Ordinal))
         {
             if (p[0] != InputMagic) Log?.Invoke($"Ignored a request from {r.RemoteEndPoint.Address}: passphrase does not match.");
@@ -105,6 +107,9 @@ public sealed class Bridge : IDisposable
             case SoundMagic:
                 SoundReceived?.Invoke(p[2], r.RemoteEndPoint);
                 break;
+            case RowsMagic:
+                RowsReceived?.Invoke(p[2], r.RemoteEndPoint);
+                break;
         }
     }
 
@@ -126,6 +131,14 @@ public sealed class Bridge : IDisposable
             Log?.Invoke($"Send to {host} failed: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>Tell the other PC which hotkey rows this PC has (for the soundboard's hold list).</summary>
+    public void SendRows(string host, int port, string json)
+    {
+        var udp = _udp;
+        if (udp == null || string.IsNullOrWhiteSpace(host)) return;
+        try { var bytes = Encoding.UTF8.GetBytes(string.Join('\t', RowsMagic, Passphrase, json.Replace('\t', ' '))); udp.Send(bytes, bytes.Length, host.Trim(), port); } catch { }
     }
 
     /// <summary>Ask the other PC to play a sound too (JSON SoundInfo, well under one datagram).</summary>

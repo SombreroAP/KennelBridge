@@ -111,6 +111,7 @@ public sealed partial class MainForm
             _list.Items.Add(new ListViewItem(new[] { b.TriggerText + (b.PassThrough ? "" : "   (only other PC)"), b.DisplayAction + (b.Hold ? "" : "  (tap)") }) { Tag = b });
         _list.EndUpdate();
         FitColumns(_list);
+        SendRows();
     }
 
     Binding? Selected => _list.SelectedItems.Count > 0 ? _list.SelectedItems[0].Tag as Binding : null;

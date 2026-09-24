@@ -543,6 +543,7 @@ public sealed partial class MainForm : Form
         ShutdownFiles();
         ShutdownAudio();
         Soundboard.StopAll();
+        foreach (var h in _sbHolds.Values.Where(x => x.local).ToList()) Native.InjectUp(h.b);   // never leave a key down here
         Disc.Dispose();
         Link.Dispose();
         _tray.Visible = false;

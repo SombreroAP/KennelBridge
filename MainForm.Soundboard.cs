@@ -20,7 +20,10 @@ public sealed partial class MainForm
     readonly ContextMenuStrip _sbMenu = new();
     readonly ComboBox _sbHold = Theme.ComboBox();
     readonly ToolStripMenuItem _sbHoldMenu = new("Hold while playing");
-    readonly Dictionary<string, (Binding b, int n)> _sbHolds = new();
+    readonly Dictionary<string, (Binding b, bool local, int n)> _sbHolds = new();
+    /// <summary>The other PC's hotkey rows, as it last reported them. Their keys are pressed on THIS PC.</summary>
+    List<Binding> _peerRows = new();
+    const string LocalPrefix = "here:";   // hold key for an other-PC row: its action is performed on this PC
 
     /// <summary>A choice in the "hold while playing" lists: a hotkey row, or none, or the board default.</summary>
     sealed record HoldChoice(string? Key, string Text) { public override string ToString() => Text; }
@@ -126,7 +129,20 @@ public sealed partial class MainForm
         return col;
     }
 
-    void WireSoundboard() => Link.SoundReceived += (json, from) => { if (IsHandleCreated) BeginInvoke(() => OnSoundFromPeer(json, from)); };
+    void WireSoundboard()
+    {
+        Link.SoundReceived += (json, from) => { if (IsHandleCreated) BeginInvoke(() => OnSoundFromPeer(json, from)); };
+        Link.RowsReceived += (json, _) => { if (IsHandleCreated) BeginInvoke(() => { try { _peerRows = JsonSerializer.Deserialize<List<Binding>>(json) ?? new(); } catch { } }); };
+    }
+
+    /// <summary>Share this PC's hotkey rows with the other PC, so its soundboard can offer them too.</summary>
+    void SendRows()
+    {
+        _rowsSentAt = DateTime.UtcNow;
+        if (S.PeerHost.Length == 0) return;
+        var rows = S.Bindings.Select(b => new Binding { Kind = b.Kind, ActionVk = b.ActionVk, ActionMods = b.ActionMods, Label = b.Label, TriggerKind = b.TriggerKind, TriggerVk = b.TriggerVk, TriggerMods = b.TriggerMods, Hold = b.Hold }).ToList();
+        Link.SendRows(S.PeerHost, S.Port, JsonSerializer.Serialize(rows));
+    }
 
     void LoadSoundboardUi()
     {
@@ -155,7 +171,15 @@ public sealed partial class MainForm
         _sbResults.EndUpdate();
     }
 
-    IEnumerable<HoldChoice> HoldRows() => S.Bindings.GroupBy(b => b.ActionKey).Select(g => new HoldChoice(g.Key, $"Hold {g.First().DisplayAction}"));
+    /// <summary>Every row from both PCs' lists, each labelled with the PC its key is pressed on.</summary>
+    IEnumerable<HoldChoice> HoldRows()
+    {
+        var other = S.PeerHost.Length == 0 ? "the other PC" : PeerName();
+        foreach (var g in S.Bindings.GroupBy(b => b.ActionKey))
+            yield return new HoldChoice(g.Key, $"{g.First().DisplayAction}  on {other}");
+        foreach (var g in _peerRows.GroupBy(b => b.ActionKey))
+            yield return new HoldChoice(LocalPrefix + g.Key, $"{g.First().DisplayAction}  on this PC  ({other}'s list)");
+    }
 
     void FillHoldChoices()
     {
@@ -164,9 +188,11 @@ public sealed partial class MainForm
         {
             var items = new List<HoldChoice> { new("", "Hold nothing") };
             items.AddRange(HoldRows());
-            if (S.Bindings.Count == 0) items.Add(new("", "(add rows on the Hotkeys page first)"));
+            if (S.Bindings.Count == 0 && _peerRows.Count == 0) items.Add(new("", "(add rows on the Hotkeys page first)"));
             _sbHold.Items.Clear(); foreach (var i in items) _sbHold.Items.Add(i);
-            _sbHold.SelectedItem = items.FirstOrDefault(i => i.Key == S.SoundHoldAction && i.Text != "(add rows on the Hotkeys page first)") ?? items[0];
+            var sel = items.FirstOrDefault(i => i.Key == S.SoundHoldAction && i.Text != "(add rows on the Hotkeys page first)");
+            if (sel == null && S.SoundHoldAction.Length > 0) { sel = new HoldChoice(S.SoundHoldAction, "(a row the other PC has not reported yet)"); items.Add(sel); _sbHold.Items.Add(sel); }
+            _sbHold.SelectedItem = sel ?? items[0];
         }
         finally { _loadingUi = loading; }
     }
@@ -186,10 +212,19 @@ public sealed partial class MainForm
         }
     }
 
-    Binding? ResolveHold(SoundInfo s)
+    (Binding b, bool local)? ResolveHold(SoundInfo s)
     {
         var key = s.HoldAction ?? S.SoundHoldAction;
-        return string.IsNullOrEmpty(key) ? null : S.Bindings.FirstOrDefault(b => b.ActionKey == key);
+        if (string.IsNullOrEmpty(key)) return null;
+        if (key.StartsWith(LocalPrefix))
+        {
+            var k = key[LocalPrefix.Length..];
+            var r = _peerRows.FirstOrDefault(b => b.ActionKey == k);
+            if (r == null) { var p = k.Split(':'); if (p.Length == 3 && int.TryParse(p[0], out var kind) && int.TryParse(p[1], out var vk) && int.TryParse(p[2], out var mods)) r = new Binding { Kind = (ActionKind)kind, ActionVk = vk, ActionMods = mods }; }
+            return r == null ? null : (r, true);
+        }
+        var own = S.Bindings.FirstOrDefault(b => b.ActionKey == key);
+        return own == null ? null : (own, false);
     }
 
     // ---- holding a key on the other PC for as long as sounds play ----
@@ -197,11 +232,20 @@ public sealed partial class MainForm
     // PC releases by itself after 500 ms of silence, so nothing sticks), then Up twice. Overlapping sounds
     // that hold the same key share one hold.
 
-    void BeginHold(Binding b)
+    static string HoldKey(Binding b, bool local) => (local ? LocalPrefix : "") + b.ActionKey;
+
+    void BeginHold(Binding b, bool local)
     {
-        var k = b.ActionKey;
-        if (_sbHolds.TryGetValue(k, out var h)) { _sbHolds[k] = (h.b, h.n + 1); return; }
-        _sbHolds[k] = (b, 1);
+        var k = HoldKey(b, local);
+        if (_sbHolds.TryGetValue(k, out var h)) { _sbHolds[k] = (h.b, h.local, h.n + 1); return; }
+        _sbHolds[k] = (b, local, 1);
+        if (local)
+        {
+            _lastInjectUtc = DateTime.UtcNow;   // so our own injected key is not taken for a hotkey press
+            Native.InjectDown(b);
+            Activity($"←  holding {b.ActionText} here while the sound plays", flash: false);
+            return;
+        }
         Link.SendHotkey(S.PeerHost, S.Port, b, PressState.Down);
         Activity($"→  holding {b.ActionText} on {PeerName()} while the sound plays", flash: false);
         _ = KeepHold(k);
@@ -212,17 +256,18 @@ public sealed partial class MainForm
         while (_sbHolds.TryGetValue(k, out var h))
         {
             await Task.Delay(100);
-            if (_sbHolds.ContainsKey(k)) Link.SendHotkey(S.PeerHost, S.Port, h.b, PressState.Down);
+            if (_sbHolds.TryGetValue(k, out var h2) && !h2.local) Link.SendHotkey(S.PeerHost, S.Port, h2.b, PressState.Down);
         }
     }
 
-    async void EndHold(Binding b)
+    async void EndHold(Binding b, bool local)
     {
         await Task.Delay(200);   // let the tail of the sound through before the channel closes
-        var k = b.ActionKey;
+        var k = HoldKey(b, local);
         if (!_sbHolds.TryGetValue(k, out var h)) return;
-        if (h.n > 1) { _sbHolds[k] = (h.b, h.n - 1); return; }
+        if (h.n > 1) { _sbHolds[k] = (h.b, h.local, h.n - 1); return; }
         _sbHolds.Remove(k);
+        if (local) { Native.InjectUp(b); Activity($"←  released {b.ActionText} here", flash: false); return; }
         Link.SendHotkey(S.PeerHost, S.Port, b, PressState.Up);
         Link.SendHotkey(S.PeerHost, S.Port, b, PressState.Up);
         Activity($"→  released {b.ActionText} on {PeerName()}", flash: false);
@@ -304,10 +349,11 @@ public sealed partial class MainForm
             if (!Soundboard.IsCached(s)) SetStatus($"Downloading {s.ShortTitle}…");
             var path = await Soundboard.EnsureAsync(s);
             // only the PC where the button was pressed holds the key, so "both PCs" never presses it twice
-            var hold = origin && !preview && S.PeerHost.Length > 0 ? ResolveHold(s) : null;
-            if (hold != null) { BeginHold(hold); await Task.Delay(150); }   // open push-to-talk before the first syllable
-            try { Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f, hold == null ? null : () => BeginInvoke(() => EndHold(hold))); }
-            catch { if (hold != null) EndHold(hold); throw; }
+            var hold = origin && !preview ? ResolveHold(s) : null;
+            if (hold is { local: false } && S.PeerHost.Length == 0) hold = null;
+            if (hold is { } h0) { BeginHold(h0.b, h0.local); await Task.Delay(150); }   // open push-to-talk before the first syllable
+            try { Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f, hold is not { } h1 ? null : () => BeginInvoke(() => EndHold(h1.b, h1.local))); }
+            catch { if (hold is { } h2) EndHold(h2.b, h2.local); throw; }
             if (!preview) Activity($"Sound: {s.ShortTitle}{(broadcast ? "  (and on " + PeerName() + ")" : "")}", flash: true);
         }
         catch (Exception ex) { Activity($"Sound {s.ShortTitle} could not play: {ex.Message}", flash: false); }
