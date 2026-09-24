@@ -74,6 +74,10 @@ public sealed class BridgeSession : IAsyncDisposable
 
     public event Action<string>? Failed;
 
+    /// <summary>Soundboard "mute my mic": the microphone stream is silenced (sent or played as zeros, timing kept).</summary>
+    public volatile bool MuteMic;
+    private byte[] _zeros = new byte[4096];
+
     public async Task StartAsync(IPEndPoint peer, CancellationToken cancellationToken = default)
     {
         if (_running) throw new InvalidOperationException("Session already running.");
@@ -153,7 +157,12 @@ public sealed class BridgeSession : IAsyncDisposable
     {
         try
         {
-            _sender?.Send(OutboundStream, block.Span);
+            if (MuteMic && OutboundStream == StreamId.Microphone)
+            {
+                if (_zeros.Length < block.Length) _zeros = new byte[block.Length];
+                _sender?.Send(OutboundStream, _zeros.AsSpan(0, block.Length));
+            }
+            else _sender?.Send(OutboundStream, block.Span);
         }
         catch (Exception ex)
         {
@@ -227,6 +236,12 @@ public sealed class BridgeSession : IAsyncDisposable
                     {
                         pcm = packet.Payload.Span;
                         lastLen = Math.Min(pcm.Length, last.Length); pcm[..lastLen].CopyTo(last);
+                    }
+
+                    if (MuteMic && InboundStream == StreamId.Microphone)
+                    {
+                        if (_zeros.Length < pcm.Length) _zeros = new byte[pcm.Length];
+                        pcm = _zeros.AsSpan(0, pcm.Length);
                     }
 
                     if (sink != null && buffered > target * 1.6 && pcm.Length >= frame * 2)

@@ -2,6 +2,11 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.5.0
+- **The soundboard's hold key always goes to the gaming PC.** Soundboard → While playing now lists every key from both PCs' Hotkeys lists once, and whichever you pick is held on the gaming PC for the length of the sound, whichever PC's list it came from and whichever PC you pressed the sound on (on the gaming PC itself it is simply pressed there). A new switch, **Also press it on this PC**, holds it on the streaming PC as well.
+- **Two outputs.** Soundboard → Output has a second, optional **Also play into** besides the required Play into, so one press can go to the gaming PC's mic path and, on the streaming PC, into your own microphone chain as well. A real microphone cannot be played into, so pick a virtual cable your mic also feeds (VB-CABLE, VoiceMeeter's input) and use that as the microphone in Discord or OBS.
+- **Mute my mic while a sound plays** (off by default). On the streaming PC the microphone stops being sent to the gaming PC and the mic device itself is muted in Windows, so Discord and OBS there go quiet too; its mute state is put back exactly as it was afterwards. On the gaming PC the incoming mic is silenced before it reaches CABLE. Overlapping sounds share one mute, and the app never leaves the mic muted when it closes.
+
 ## 1.4.1
 - **Hold list shows both PCs' hotkeys.** The two PCs now share their Hotkeys lists over the link (whenever a row changes, and every 15 seconds so a PC started later catches up), and Soundboard → While playing lists every row from both, each labelled with where its key is pressed: this PC's rows press their key on the other PC, the other PC's rows press theirs here. So a sound played on either PC can hold a key on either PC. The per-sound right-click choice lists the same rows.
 

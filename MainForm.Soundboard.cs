@@ -10,7 +10,12 @@ public sealed partial class MainForm
 {
     readonly CheckBox _sbEnabled = Theme.Check("Soundboard on");
     readonly CheckBox _sbBoth = Theme.Check("Play on both PCs");
+    readonly CheckBox _sbMuteMic = Theme.Check("Mute my mic while a sound plays");
+    int _micMuteCount;
+    bool _micMutedByUs;
     readonly ComboBox _sbDevice = Theme.ComboBox();
+    readonly ComboBox _sbDevice2 = Theme.ComboBox();
+    const string NoSecond = "Nothing";
     readonly Button[] _sbVol = { Theme.Button("25 %", minWidth: 0), Theme.Button("50 %", minWidth: 0), Theme.Button("75 %", minWidth: 0), Theme.Button("100 %", minWidth: 0) };
     readonly FlowLayoutPanel _sbBoard = new() { Dock = DockStyle.Fill, AutoScroll = true, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
     readonly Label _sbEmpty = Theme.Label("Nothing here yet. Find a sound on the right and add it.", muted: true);
@@ -19,6 +24,7 @@ public sealed partial class MainForm
     readonly Label _sbStatus = Theme.Label("", muted: true, Theme.Small);
     readonly ContextMenuStrip _sbMenu = new();
     readonly ComboBox _sbHold = Theme.ComboBox();
+    readonly CheckBox _sbHoldHere = Theme.Check("Also press it on this PC");
     readonly ToolStripMenuItem _sbHoldMenu = new("Hold while playing");
     readonly Dictionary<string, (Binding b, bool local, int n)> _sbHolds = new();
     /// <summary>The other PC's hotkey rows, as it last reported them. Their keys are pressed on THIS PC.</summary>
@@ -32,16 +38,17 @@ public sealed partial class MainForm
 
     Control BuildSoundboardPage()
     {
-        var col = Rows(196, -1);
+        var col = Rows(240, -1);
 
         var outCard = new Card("Output") { Dock = DockStyle.Fill };
         var oT = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2 };
         oT.ColumnStyles.Add(Cpx(110)); oT.ColumnStyles.Add(Cpct(60)); oT.ColumnStyles.Add(Cpx(80)); oT.ColumnStyles.Add(Cpct(40));
-        oT.RowStyles.Add(Px(40)); oT.RowStyles.Add(Px(40)); oT.RowStyles.Add(Px(44));
+        oT.RowStyles.Add(Px(40)); oT.RowStyles.Add(Px(40)); oT.RowStyles.Add(Px(44)); oT.RowStyles.Add(Px(44));
         var tg = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
         _sbEnabled.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundboardEnabled = _sbEnabled.Checked; S.Save(); };
         _sbBoth.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundBothPcs = _sbBoth.Checked; S.Save(); };
-        tg.Controls.Add(_sbEnabled); tg.Controls.Add(_sbBoth);
+        _sbMuteMic.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundMuteMic = _sbMuteMic.Checked; S.Save(); };
+        tg.Controls.Add(_sbEnabled); tg.Controls.Add(_sbBoth); tg.Controls.Add(_sbMuteMic);
         tg.Controls.Add(On(Theme.Button("Stop all sounds"), Soundboard.StopAll));
         oT.Controls.Add(tg, 0, 0); oT.SetColumnSpan(tg, 4);
         oT.Controls.Add(Theme.Label("Play into"), 0, 1);
@@ -49,6 +56,14 @@ public sealed partial class MainForm
         _sbDevice.DropDown += (_, _) => FillSoundDevices();
         _sbDevice.SelectedIndexChanged += (_, _) => { if (_loadingUi) return; S.SoundDeviceId = (_sbDevice.SelectedItem as AudioDeviceInfo)?.Id; S.SoundDeviceSet = true; S.Save(); };
         oT.Controls.Add(_sbDevice, 1, 1);
+        oT.Controls.Add(Theme.Label("Also play into"), 0, 3);
+        _sbDevice2.Dock = DockStyle.Fill; _sbDevice2.DropDownStyle = ComboBoxStyle.DropDownList; _sbDevice2.Margin = new Padding(0, 6, 0, 4);
+        _sbDevice2.DropDown += (_, _) => FillSoundDevices();
+        _sbDevice2.SelectedIndexChanged += (_, _) => { if (_loadingUi) return; S.SoundDevice2Id = (_sbDevice2.SelectedItem as AudioDeviceInfo)?.Id; S.Save(); };
+        oT.Controls.Add(_sbDevice2, 1, 3);
+        var d2hint = Theme.Label("optional, e.g. a virtual cable your mic also feeds", muted: true, Small);
+        d2hint.AutoSize = false; d2hint.Dock = DockStyle.Fill; d2hint.AutoEllipsis = true; d2hint.TextAlign = ContentAlignment.MiddleLeft; d2hint.Margin = new Padding(12, 0, 0, 0);
+        oT.Controls.Add(d2hint, 2, 3); oT.SetColumnSpan(d2hint, 2);
         oT.Controls.Add(Theme.Label("Volume", muted: true), 2, 1);
         var vol = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, Margin = new Padding(0, 3, 0, 3) };
         for (int i = 0; i < 4; i++)
@@ -65,9 +80,9 @@ public sealed partial class MainForm
         _sbHold.DropDown += (_, _) => FillHoldChoices();
         _sbHold.SelectedIndexChanged += (_, _) => { if (_loadingUi || _sbHold.SelectedItem is not HoldChoice c) return; S.SoundHoldAction = c.Key ?? ""; S.Save(); };
         oT.Controls.Add(_sbHold, 1, 2);
-        var holdHint = Theme.Label("held on the other PC, e.g. the game's proximity-chat key", muted: true, Small);
-        holdHint.AutoSize = false; holdHint.Dock = DockStyle.Fill; holdHint.AutoEllipsis = true; holdHint.TextAlign = ContentAlignment.MiddleLeft;
-        oT.Controls.Add(holdHint, 2, 2); oT.SetColumnSpan(holdHint, 2);
+        _sbHoldHere.Margin = new Padding(12, 8, 0, 0);
+        _sbHoldHere.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundHoldAlsoHere = _sbHoldHere.Checked; S.Save(); };
+        oT.Controls.Add(_sbHoldHere, 2, 2); oT.SetColumnSpan(_sbHoldHere, 2);
         outCard.Controls.Add(oT);
         col.Controls.Add(outCard, 0, 0);
 
@@ -150,6 +165,9 @@ public sealed partial class MainForm
         _sbBoth.Checked = S.SoundBothPcs;
         FillSoundDevices();
         FillHoldChoices();
+        _sbHoldHere.Checked = S.SoundHoldAlsoHere;
+        _sbMuteMic.Checked = S.SoundMuteMic;
+        _sbHoldHere.Visible = S.Role != PcRole.Gaming;   // on the gaming PC the key is pressed here anyway
         SyncVolumeUi();
         RefreshBoard();
         if (_sbResults.Items.Count == 0) ShowPopular();
@@ -171,15 +189,11 @@ public sealed partial class MainForm
         _sbResults.EndUpdate();
     }
 
-    /// <summary>Every row from both PCs' lists, each labelled with the PC its key is pressed on.</summary>
+    /// <summary>Every key from both PCs' Hotkeys lists, once each. Whatever is picked is held on the gaming PC.</summary>
     IEnumerable<HoldChoice> HoldRows()
-    {
-        var other = S.PeerHost.Length == 0 ? "the other PC" : PeerName();
-        foreach (var g in S.Bindings.GroupBy(b => b.ActionKey))
-            yield return new HoldChoice(g.Key, $"{g.First().DisplayAction}  on {other}");
-        foreach (var g in _peerRows.GroupBy(b => b.ActionKey))
-            yield return new HoldChoice(LocalPrefix + g.Key, $"{g.First().DisplayAction}  on this PC  ({other}'s list)");
-    }
+        => S.Bindings.Concat(_peerRows).GroupBy(b => b.ActionKey).Select(g => new HoldChoice(g.Key, $"Hold {g.First().DisplayAction}"));
+
+    static string Bare(string? key) => key != null && key.StartsWith(LocalPrefix) ? key[LocalPrefix.Length..] : key ?? "";
 
     void FillHoldChoices()
     {
@@ -190,7 +204,7 @@ public sealed partial class MainForm
             items.AddRange(HoldRows());
             if (S.Bindings.Count == 0 && _peerRows.Count == 0) items.Add(new("", "(add rows on the Hotkeys page first)"));
             _sbHold.Items.Clear(); foreach (var i in items) _sbHold.Items.Add(i);
-            var sel = items.FirstOrDefault(i => i.Key == S.SoundHoldAction && i.Text != "(add rows on the Hotkeys page first)");
+            var sel = items.FirstOrDefault(i => i.Key == Bare(S.SoundHoldAction) && i.Text != "(add rows on the Hotkeys page first)");
             if (sel == null && S.SoundHoldAction.Length > 0) { sel = new HoldChoice(S.SoundHoldAction, "(a row the other PC has not reported yet)"); items.Add(sel); _sbHold.Items.Add(sel); }
             _sbHold.SelectedItem = sel ?? items[0];
         }
@@ -206,25 +220,28 @@ public sealed partial class MainForm
         choices.AddRange(HoldRows());
         foreach (var c in choices)
         {
-            var it = new ToolStripMenuItem(c.Text) { Checked = s.HoldAction == c.Key };
+            var it = new ToolStripMenuItem(c.Text) { Checked = (s.HoldAction == null ? null : Bare(s.HoldAction)) == c.Key };
             it.Click += (_, _) => { s.HoldAction = c.Key; S.Save(); };
             _sbHoldMenu.DropDownItems.Add(it);
         }
     }
 
-    (Binding b, bool local)? ResolveHold(SoundInfo s)
+    Binding? ResolveHold(SoundInfo s)
     {
-        var key = s.HoldAction ?? S.SoundHoldAction;
-        if (string.IsNullOrEmpty(key)) return null;
-        if (key.StartsWith(LocalPrefix))
-        {
-            var k = key[LocalPrefix.Length..];
-            var r = _peerRows.FirstOrDefault(b => b.ActionKey == k);
-            if (r == null) { var p = k.Split(':'); if (p.Length == 3 && int.TryParse(p[0], out var kind) && int.TryParse(p[1], out var vk) && int.TryParse(p[2], out var mods)) r = new Binding { Kind = (ActionKind)kind, ActionVk = vk, ActionMods = mods }; }
-            return r == null ? null : (r, true);
-        }
-        var own = S.Bindings.FirstOrDefault(b => b.ActionKey == key);
-        return own == null ? null : (own, false);
+        var key = s.HoldAction == null ? Bare(S.SoundHoldAction) : Bare(s.HoldAction);
+        if (key.Length == 0) return null;
+        var r = S.Bindings.Concat(_peerRows).FirstOrDefault(b => b.ActionKey == key);
+        if (r == null) { var p = key.Split(':'); if (p.Length == 3 && int.TryParse(p[0], out var kind) && int.TryParse(p[1], out var vk) && int.TryParse(p[2], out var mods)) r = new Binding { Kind = (ActionKind)kind, ActionVk = vk, ActionMods = mods }; }
+        return r;
+    }
+
+    /// <summary>Where the key goes: always the gaming PC (here if this is it), plus this PC when asked.</summary>
+    List<bool> HoldTargets()
+    {
+        var t = new List<bool>();                       // true = press on this PC, false = hold on the other PC
+        if (S.Role == PcRole.Gaming) t.Add(true);
+        else { if (S.PeerHost.Length > 0) t.Add(false); if (S.SoundHoldAlsoHere) t.Add(true); }
+        return t;
     }
 
     // ---- holding a key on the other PC for as long as sounds play ----
@@ -273,6 +290,41 @@ public sealed partial class MainForm
         Activity($"→  released {b.ActionText} on {PeerName()}", flash: false);
     }
 
+    // ---- "mute my mic while a sound plays" ----
+    // Streaming PC: the mic stops being sent to the gaming PC, and the capture device itself is muted in
+    // Windows so Discord / OBS on this PC go quiet too; its own mute state is put back afterwards.
+    // Gaming PC: the incoming mic is silenced before it reaches CABLE. Overlapping sounds share one mute.
+
+    void MicMuteBegin()
+    {
+        if (_micMuteCount++ > 0) return;
+        if (_audioSession != null) _audioSession.MuteMic = true;
+        if (S.Role != PcRole.Streaming) return;
+        try
+        {
+            using var dev = WindowsAudioDevices.Resolve(S.AudioCaptureDeviceId, NAudio.CoreAudioApi.DataFlow.Capture);
+            if (dev != null && !dev.AudioEndpointVolume.Mute) { dev.AudioEndpointVolume.Mute = true; _micMutedByUs = true; }
+        }
+        catch (Exception ex) { Activity("Could not mute the microphone: " + ex.Message, flash: false); }
+    }
+
+    void MicMuteEnd()
+    {
+        if (_micMuteCount == 0 || --_micMuteCount > 0) return;
+        if (_audioSession != null) _audioSession.MuteMic = false;
+        if (!_micMutedByUs) return;
+        _micMutedByUs = false;
+        try
+        {
+            using var dev = WindowsAudioDevices.Resolve(S.AudioCaptureDeviceId, NAudio.CoreAudioApi.DataFlow.Capture);
+            if (dev != null) dev.AudioEndpointVolume.Mute = false;
+        }
+        catch { }
+    }
+
+    /// <summary>On exit: never leave the mic muted.</summary>
+    void ReleaseMicMute() { if (_micMuteCount > 0) { _micMuteCount = 1; MicMuteEnd(); } }
+
     void SyncVolumeUi() { for (int i = 0; i < 4; i++) SetSegment(_sbVol[i], S.SoundVolume == (i + 1) * 25); }
 
     /// <summary>Output list; the gaming PC defaults to CABLE Input so the game and Discord hear the sound in the mic.</summary>
@@ -287,6 +339,11 @@ public sealed partial class MainForm
             _sbDevice.Items.Clear(); foreach (var d in devs) _sbDevice.Items.Add(d);
             _sbDevice.DisplayMember = "Name";
             _sbDevice.SelectedItem = devs.FirstOrDefault(d => d.Id == S.SoundDeviceId) ?? devs[0];
+            var second = new List<AudioDeviceInfo> { new(null!, NoSecond, false) };
+            second.AddRange(devs.Skip(1));
+            _sbDevice2.Items.Clear(); foreach (var d in second) _sbDevice2.Items.Add(d);
+            _sbDevice2.DisplayMember = "Name";
+            _sbDevice2.SelectedItem = second.FirstOrDefault(d => d.Id != null && d.Id == S.SoundDevice2Id) ?? second[0];
         }
         finally { _loadingUi = loading; }
     }
@@ -350,10 +407,20 @@ public sealed partial class MainForm
             var path = await Soundboard.EnsureAsync(s);
             // only the PC where the button was pressed holds the key, so "both PCs" never presses it twice
             var hold = origin && !preview ? ResolveHold(s) : null;
-            if (hold is { local: false } && S.PeerHost.Length == 0) hold = null;
-            if (hold is { } h0) { BeginHold(h0.b, h0.local); await Task.Delay(150); }   // open push-to-talk before the first syllable
-            try { Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f, hold is not { } h1 ? null : () => BeginInvoke(() => EndHold(h1.b, h1.local))); }
-            catch { if (hold is { } h2) EndHold(h2.b, h2.local); throw; }
+            var targets = hold == null ? new List<bool>() : HoldTargets();
+            foreach (var local in targets) BeginHold(hold!, local);
+            bool mute = !preview && S.SoundMuteMic;
+            if (mute) MicMuteBegin();
+            if (targets.Count > 0) await Task.Delay(150);   // open push-to-talk before the first syllable
+            void Release() { foreach (var local in targets) EndHold(hold!, local); if (mute) MicMuteEnd(); }
+            try { Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f, targets.Count == 0 && !mute ? null : () => BeginInvoke(Release)); }
+            catch { Release(); throw; }
+            // the optional second output; it never holds keys (the first one does) and a failure there doesn't stop the first
+            if (!preview && !string.IsNullOrEmpty(S.SoundDevice2Id) && S.SoundDevice2Id != S.SoundDeviceId)
+            {
+                try { Soundboard.Play(path, S.SoundDevice2Id, S.SoundVolume / 100f); }
+                catch (Exception ex2) { Activity($"Sound {s.ShortTitle}: second output failed: {ex2.Message}", flash: false); }
+            }
             if (!preview) Activity($"Sound: {s.ShortTitle}{(broadcast ? "  (and on " + PeerName() + ")" : "")}", flash: true);
         }
         catch (Exception ex) { Activity($"Sound {s.ShortTitle} could not play: {ex.Message}", flash: false); }

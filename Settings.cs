@@ -98,7 +98,10 @@ public sealed class Settings
     public string? SoundDeviceId { get; set; }            // null = Windows default; gaming PC defaults to CABLE Input
     public bool SoundDeviceSet { get; set; }              // the user picked a device (stop applying the default)
     public int SoundVolume { get; set; } = 75;
-    public string SoundHoldAction { get; set; } = "";   // a hotkey row held on the other PC while a sound plays ("" = none)
+    public string? SoundDevice2Id { get; set; }             // optional second output, e.g. a virtual cable used as the mic here ("" or null = none)
+    public string SoundHoldAction { get; set; } = "";
+    public bool SoundHoldAlsoHere { get; set; }
+    public bool SoundMuteMic { get; set; }               // silence the main mic while a sound plays (off by default)          // besides the gaming PC, also hold the key on this (streaming) PC   // a hotkey row held on the other PC while a sound plays ("" = none)
     public List<SoundInfo> Sounds { get; set; } = new();
 
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KennelBridge");
