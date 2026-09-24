@@ -1,5 +1,6 @@
 using System.Net;
 using NAudio.CoreAudioApi;
+using NAudio.Wave;
 
 namespace KennelBridge.Audio;
 
@@ -153,16 +154,42 @@ public sealed class BridgeSession : IAsyncDisposable
         return WasapiCaptureSource.Microphone(mic, _format, _settings.BlockMilliseconds);
     }
 
+    // ---- soundboard: sounds mixed into the microphone before it is sent ----
+    private readonly List<(ISampleProvider src, Action? done)> _mix = new();
+    private readonly object _mixGate = new();
+    private byte[] _work = new byte[4096];
+    private float[] _mixBuf = new float[2048];
+
+    /// <summary>Add a sound to the outgoing microphone (48 kHz stereo float). <paramref name="done"/> runs when it ends.</summary>
+    public void MixIntoMic(ISampleProvider source, Action? done)
+    {
+        if (source.WaveFormat.SampleRate != _format.SampleRate || source.WaveFormat.Channels != _format.Channels)
+            throw new ArgumentException("Mic mix needs 48 kHz stereo.");
+        lock (_mixGate) _mix.Add((source, done));
+    }
+
+    public void ClearMix()
+    {
+        List<Action?> ended;
+        lock (_mixGate) { ended = _mix.Select(m => m.done).ToList(); _mix.Clear(); }
+        foreach (var d in ended) if (d != null) ThreadPool.QueueUserWorkItem(_ => d());
+    }
+
+    public bool CanMixIntoMic => _running && OutboundStream == StreamId.Microphone;
+
     private void OnCaptured(ReadOnlyMemory<byte> block)
     {
         try
         {
-            if (MuteMic && OutboundStream == StreamId.Microphone)
-            {
-                if (_zeros.Length < block.Length) _zeros = new byte[block.Length];
-                _sender?.Send(OutboundStream, _zeros.AsSpan(0, block.Length));
-            }
-            else _sender?.Send(OutboundStream, block.Span);
+            bool mic = OutboundStream == StreamId.Microphone;
+            int mixing; lock (_mixGate) mixing = _mix.Count;
+            if (!mic || (!MuteMic && mixing == 0)) { _sender?.Send(OutboundStream, block.Span); return; }
+
+            if (_work.Length < block.Length) _work = new byte[block.Length];
+            var pcm = _work.AsSpan(0, block.Length);
+            if (MuteMic) pcm.Clear(); else block.Span.CopyTo(pcm);
+            if (mixing > 0) MixInto(pcm);
+            _sender?.Send(OutboundStream, pcm);
         }
         catch (Exception ex)
         {
@@ -189,6 +216,31 @@ public sealed class BridgeSession : IAsyncDisposable
     /// a cushion of TargetBufferMs kept in the playback buffer, re-established after any underrun;
     /// and clock drift followed one frame at a time (inaudible) instead of dropping whole 5 ms blocks.
     /// </summary>
+    /// <summary>Add every playing sound into a block of 16-bit PCM, clipping instead of wrapping.</summary>
+    private void MixInto(Span<byte> pcm)
+    {
+        int samples = pcm.Length / 2;
+        if (_mixBuf.Length < samples) _mixBuf = new float[samples];
+        var acc = new float[samples];
+        List<Action?>? ended = null;
+        lock (_mixGate)
+        {
+            for (int m = _mix.Count - 1; m >= 0; m--)
+            {
+                int n = _mix[m].src.Read(_mixBuf, 0, samples);
+                for (int i = 0; i < n; i++) acc[i] += _mixBuf[i];
+                if (n < samples) { (ended ??= new()).Add(_mix[m].done); _mix.RemoveAt(m); }
+            }
+        }
+        for (int i = 0; i < samples; i++)
+        {
+            int v = (short)(pcm[2 * i] | (pcm[2 * i + 1] << 8)) + (int)(acc[i] * 32767f);
+            v = Math.Clamp(v, short.MinValue, short.MaxValue);
+            pcm[2 * i] = (byte)v; pcm[2 * i + 1] = (byte)(v >> 8);
+        }
+        if (ended != null) foreach (var d in ended) if (d != null) ThreadPool.QueueUserWorkItem(_ => d());
+    }
+
     private void PumpLoop()
     {
         timeBeginPeriod(1);

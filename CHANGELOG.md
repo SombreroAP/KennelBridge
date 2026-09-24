@@ -2,6 +2,9 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.5.1
+- **On the streaming PC the soundboard plays into your microphone.** A new Play into choice, **My microphone**, now the default on the streaming PC, mixes the sound into the microphone the audio bridge sends to the gaming PC, so it arrives in CABLE together with your voice and the game and Discord hear both. It needs the audio bridge running. With Play on both PCs on, the gaming PC no longer also plays a sound into CABLE when the streaming PC already put it in the mic, so nothing is heard twice. Stop all stops mic sounds too, and Mute my mic still silences your voice while leaving the sound in.
+
 ## 1.5.0
 - **The soundboard's hold key always goes to the gaming PC.** Soundboard → While playing now lists every key from both PCs' Hotkeys lists once, and whichever you pick is held on the gaming PC for the length of the sound, whichever PC's list it came from and whichever PC you pressed the sound on (on the gaming PC itself it is simply pressed there). A new switch, **Also press it on this PC**, holds it on the streaming PC as well.
 - **Two outputs.** Soundboard → Output has a second, optional **Also play into** besides the required Play into, so one press can go to the gaming PC's mic path and, on the streaming PC, into your own microphone chain as well. A real microphone cannot be played into, so pick a virtual cable your mic also feeds (VB-CABLE, VoiceMeeter's input) and use that as the microphone in Discord or OBS.

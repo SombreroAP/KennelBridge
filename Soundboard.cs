@@ -20,6 +20,8 @@ public sealed class SoundInfo
     public string Source { get; set; } = "";
     /// <summary>Key held on the other PC while this sound plays: null = the board's default, "" = none, else a hotkey row's ActionKey.</summary>
     public string? HoldAction { get; set; }
+    /// <summary>Set only on the message to the other PC: this press went into the microphone, so the gaming PC should not also play it into CABLE.</summary>
+    public bool ViaMic { get; set; }
     [JsonIgnore] public string LengthText => DurationMs <= 0 ? "" : DurationMs < 60000 ? $"{DurationMs / 1000.0:0.0} s" : $"{DurationMs / 60000}:{DurationMs / 1000 % 60:00}";
     [JsonIgnore] public string ShortTitle => Soundboard.Tidy(Title);
 }
@@ -149,6 +151,18 @@ public static class Soundboard
         };
         lock (Gate) Playing.Add(output);
         output.Play();
+    }
+
+    /// <summary>A sound as 48 kHz stereo samples at the given volume, for mixing into the microphone.</summary>
+    public static ISampleProvider OpenForMix(string path, float volume, out IDisposable reader)
+    {
+        var r = new MediaFoundationReader(path);
+        reader = r;
+        ISampleProvider sp = r.ToSampleProvider();
+        if (sp.WaveFormat.Channels == 1) sp = new MonoToStereoSampleProvider(sp);
+        else if (sp.WaveFormat.Channels > 2) sp = new MultiplexingSampleProvider(new[] { sp }, 2);
+        if (sp.WaveFormat.SampleRate != 48000) sp = new WdlResamplingSampleProvider(sp, 48000);
+        return new VolumeSampleProvider(sp) { Volume = Math.Clamp(volume, 0f, 1f) };
     }
 
     public static void StopAll()

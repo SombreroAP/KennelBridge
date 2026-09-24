@@ -16,6 +16,9 @@ public sealed partial class MainForm
     readonly ComboBox _sbDevice = Theme.ComboBox();
     readonly ComboBox _sbDevice2 = Theme.ComboBox();
     const string NoSecond = "Nothing";
+    /// <summary>"Play into" value meaning: mix into the microphone the audio bridge sends to the gaming PC.</summary>
+    const string MicTarget = "mic:";
+    bool PlaysIntoMic => S.Role == PcRole.Streaming && S.SoundDeviceId == MicTarget;
     readonly Button[] _sbVol = { Theme.Button("25 %", minWidth: 0), Theme.Button("50 %", minWidth: 0), Theme.Button("75 %", minWidth: 0), Theme.Button("100 %", minWidth: 0) };
     readonly FlowLayoutPanel _sbBoard = new() { Dock = DockStyle.Fill, AutoScroll = true, Margin = new Padding(0), Padding = new Padding(0, 4, 0, 0) };
     readonly Label _sbEmpty = Theme.Label("Nothing here yet. Find a sound on the right and add it.", muted: true);
@@ -49,7 +52,7 @@ public sealed partial class MainForm
         _sbBoth.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundBothPcs = _sbBoth.Checked; S.Save(); };
         _sbMuteMic.CheckedChanged += (_, _) => { if (_loadingUi) return; S.SoundMuteMic = _sbMuteMic.Checked; S.Save(); };
         tg.Controls.Add(_sbEnabled); tg.Controls.Add(_sbBoth); tg.Controls.Add(_sbMuteMic);
-        tg.Controls.Add(On(Theme.Button("Stop all sounds"), Soundboard.StopAll));
+        tg.Controls.Add(On(Theme.Button("Stop all sounds"), () => { Soundboard.StopAll(); _audioSession?.ClearMix(); }));
         oT.Controls.Add(tg, 0, 0); oT.SetColumnSpan(tg, 4);
         oT.Controls.Add(Theme.Label("Play into"), 0, 1);
         _sbDevice.Dock = DockStyle.Fill; _sbDevice.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -333,14 +336,19 @@ public sealed partial class MainForm
         bool loading = _loadingUi; _loadingUi = true;
         try
         {
-            var devs = new List<AudioDeviceInfo> { new(null!, DefaultDevice, false) };
+            var devs = new List<AudioDeviceInfo>();
+            if (S.Role == PcRole.Streaming) devs.Add(new(MicTarget, "My microphone (what the gaming PC hears)", false));
+            devs.Add(new(null!, DefaultDevice, false));
+            int firstReal = devs.Count;
             try { devs.AddRange(WindowsAudioDevices.GetRenderDevices()); } catch { }
             if (!S.SoundDeviceSet && S.Role == PcRole.Gaming && _virtualMic.InputEndpoint != null) S.SoundDeviceId = _virtualMic.InputEndpoint.Id;
+            if (!S.SoundDeviceSet && S.Role == PcRole.Streaming) S.SoundDeviceId = MicTarget;
+            if (S.SoundDeviceId == MicTarget && S.Role != PcRole.Streaming) S.SoundDeviceId = null;
             _sbDevice.Items.Clear(); foreach (var d in devs) _sbDevice.Items.Add(d);
             _sbDevice.DisplayMember = "Name";
             _sbDevice.SelectedItem = devs.FirstOrDefault(d => d.Id == S.SoundDeviceId) ?? devs[0];
             var second = new List<AudioDeviceInfo> { new(null!, NoSecond, false) };
-            second.AddRange(devs.Skip(1));
+            second.AddRange(devs.Skip(firstReal));
             _sbDevice2.Items.Clear(); foreach (var d in second) _sbDevice2.Items.Add(d);
             _sbDevice2.DisplayMember = "Name";
             _sbDevice2.SelectedItem = second.FirstOrDefault(d => d.Id != null && d.Id == S.SoundDevice2Id) ?? second[0];
@@ -400,7 +408,12 @@ public sealed partial class MainForm
     {
         if (!S.Enabled && !preview) { SetStatus("Paused - resume to play sounds."); return; }
         if (!S.SoundboardEnabled && !preview) { SetStatus("The soundboard is off."); return; }
-        if (broadcast && S.PeerHost.Length > 0) Link.SendSound(S.PeerHost, S.Port, JsonSerializer.Serialize(s));
+        if (broadcast && S.PeerHost.Length > 0)
+        {
+            var msg = JsonSerializer.Deserialize<SoundInfo>(JsonSerializer.Serialize(s))!;
+            msg.ViaMic = !preview && PlaysIntoMic; msg.HoldAction = null;
+            Link.SendSound(S.PeerHost, S.Port, JsonSerializer.Serialize(msg));
+        }
         try
         {
             if (!Soundboard.IsCached(s)) SetStatus($"Downloading {s.ShortTitle}…");
@@ -413,7 +426,17 @@ public sealed partial class MainForm
             if (mute) MicMuteBegin();
             if (targets.Count > 0) await Task.Delay(150);   // open push-to-talk before the first syllable
             void Release() { foreach (var local in targets) EndHold(hold!, local); if (mute) MicMuteEnd(); }
-            try { Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f, targets.Count == 0 && !mute ? null : () => BeginInvoke(Release)); }
+            try
+            {
+                if (!preview && PlaysIntoMic)
+                {
+                    // into the microphone itself: mixed into the stream the gaming PC receives in CABLE
+                    if (_audioSession?.CanMixIntoMic != true) throw new InvalidOperationException("the audio bridge is not running, so there is no microphone to play into - turn it on on the Audio page");
+                    var src = Soundboard.OpenForMix(path, S.SoundVolume / 100f, out var reader);
+                    _audioSession.MixIntoMic(src, () => { reader.Dispose(); if (IsHandleCreated) BeginInvoke(Release); });
+                }
+                else Soundboard.Play(path, preview ? null : S.SoundDeviceId, S.SoundVolume / 100f, targets.Count == 0 && !mute ? null : () => BeginInvoke(Release));
+            }
             catch { Release(); throw; }
             // the optional second output; it never holds keys (the first one does) and a failure there doesn't stop the first
             if (!preview && !string.IsNullOrEmpty(S.SoundDevice2Id) && S.SoundDevice2Id != S.SoundDeviceId)
@@ -432,7 +455,10 @@ public sealed partial class MainForm
         SoundInfo? s;
         try { s = JsonSerializer.Deserialize<SoundInfo>(json); } catch { return; }
         if (s == null || s.Url.Length == 0 || !Uri.TryCreate(s.Url, UriKind.Absolute, out var u) || u.Scheme != "https") return;
+        bool viaMic = s.ViaMic; s.ViaMic = false;
         if (!S.Sounds.Any(x => x.Id == s.Id)) { S.Sounds.Add(s); S.Save(); RefreshBoard(); }   // keep both boards the same
+        // the streaming PC already mixed it into the mic that plays into CABLE here: playing it into CABLE again would double it
+        if (viaMic && S.Role == PcRole.Gaming && _virtualMic.InputEndpoint != null && S.SoundDeviceId == _virtualMic.InputEndpoint.Id) return;
         _ = PlaySound(s, broadcast: false);
     }
 }
