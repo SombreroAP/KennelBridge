@@ -21,12 +21,13 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
-    <Version>1.6.0</Version>
+    <Version>1.7.0</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
   </ItemGroup>
 
   <ItemGroup>
@@ -45,5 +46,14 @@
     <EmbeddedResource Include="models\xbox.glb" LogicalName="models/xbox.glb" />
     <EmbeddedResource Include="models\xbox.json" LogicalName="models/xbox.json" />
   </ItemGroup>
+
+  <!-- WebView2 ships a WPF control too; this app only uses the WinForms one, and the WPF assembly
+       drags in a conflicting WindowsBase. -->
+  <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
 
 </Project>

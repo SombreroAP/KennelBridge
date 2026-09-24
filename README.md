@@ -61,6 +61,10 @@ list (for example one whose action on the gaming PC is the game's proximity-chat
 press the sound on holds that key on the other PC for the length of the sound. Right-click a sound to
 give it its own key. The gaming PC must have the hotkey bridge on and set to receive (Both is fine).
 
+**MyInstants:** *Browse MyInstants* opens the site in a browser window inside the app; press **+ Board**
+under any sound to add it. The other PC gets a copy over the LAN (TCP 47854, so run *Firewall…* again
+after updating). Sounds there are user uploads: you are responsible for the right to play them.
+
 ## Problems
 
 **Collect diagnostics** on the Activity page (or in the tray menu) saves a zip to the Desktop with
@@ -84,6 +88,7 @@ KennelBridge and replace the old one on both PCs. Every version is listed in
 | UDP 47851 | finding the other PC (broadcast) |
 | UDP 47852 | audio (raw 48 kHz stereo 16-bit PCM, both directions) |
 | TCP 47853 | file transfers |
+| TCP 47854 | soundboard: MyInstants files sent to the other PC |
 | TCP 47790 | overlay pages for OBS, localhost only (no firewall rule needed) |
 
 All traffic is plain LAN traffic protected by the shared passphrase. Do not expose the ports to the

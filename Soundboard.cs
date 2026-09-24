@@ -121,13 +121,17 @@ public static class Soundboard
     public static bool IsCached(SoundInfo s) => File.Exists(PathFor(s));
 
     /// <summary>Long sounds are not worth waiting for: stream them from the web the first time (and save in the background).</summary>
-    public static bool StreamFirst(SoundInfo s) => !IsCached(s) && (s.DurationMs == 0 || s.DurationMs > 20000);
+    public static bool StreamFirst(SoundInfo s) => !IsCached(s) && !IsBrowserOnly(s) && (s.DurationMs == 0 || s.DurationMs > 20000);
+
+    /// <summary>Sounds whose files only a real browser session can fetch (MyInstants): added through the in-app browser, sent to the other PC directly.</summary>
+    public static bool IsBrowserOnly(SoundInfo s) => s.Source == "myinstants";
 
     /// <summary>The local file, downloading it the first time.</summary>
     public static async Task<string> EnsureAsync(SoundInfo s, CancellationToken ct = default)
     {
         var path = PathFor(s);
         if (File.Exists(path)) return path;
+        if (IsBrowserOnly(s)) throw new InvalidOperationException("this MyInstants sound is not on this PC yet - add it with Browse MyInstants, or play it once on the other PC");
         Directory.CreateDirectory(Dir);
         var tmp = path + ".part";
         using (var res = await Http.GetAsync(s.Url, HttpCompletionOption.ResponseHeadersRead, ct))

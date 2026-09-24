@@ -40,6 +40,8 @@ public sealed partial class MainForm
     sealed record HoldChoice(string? Key, string Text) { public override string ToString() => Text; }
     CancellationTokenSource? _sbSearchCts;
     SoundInfo? _sbHover;
+    readonly SoundShare _sbShare = new();
+    readonly HashSet<string> _sbPushed = new();   // MyInstants files already sent to the other PC this session
     Soundboard.Length _sbLength = Soundboard.Length.Short;
     readonly Button[] _sbLen = { Theme.Button("Short", minWidth: 0), Theme.Button("Long", minWidth: 0), Theme.Button("Music", minWidth: 0) };   // the board button under the mouse, for Delete / Backspace
 
@@ -176,6 +178,7 @@ public sealed partial class MainForm
         fT.Controls.Add(_sbResults, 0, 3);
         var fb = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0, 6, 0, 0) };
         fb.Controls.Add(On(Theme.Button("Add to board", primary: true), AddSelected));
+        fb.Controls.Add(On(Theme.Button("Browse MyInstants"), OpenMyInstants));
         fb.Controls.Add(On(Theme.Button("Preview"), () => { if (_sbResults.SelectedItems.Count > 0 && _sbResults.SelectedItems[0].Tag is SoundInfo s) _ = PlaySound(s, broadcast: false, preview: true); }));
         fT.Controls.Add(fb, 0, 4);
         _sbStatus.AutoSize = false; _sbStatus.Dock = DockStyle.Fill; _sbStatus.AutoEllipsis = true; _sbStatus.TextAlign = ContentAlignment.MiddleLeft;
@@ -190,7 +193,50 @@ public sealed partial class MainForm
     void WireSoundboard()
     {
         Link.SoundReceived += (json, from) => { if (IsHandleCreated) BeginInvoke(() => OnSoundFromPeer(json, from)); };
+        _sbShare.Log += msg => Activity(msg, flash: false);
+        _sbShare.Received += name => { if (IsHandleCreated) BeginInvoke(() => SetStatus($"Sound received from {PeerName()}: {name}")); };
         Link.RowsReceived += (json, _) => { if (IsHandleCreated) BeginInvoke(() => { try { _peerRows = JsonSerializer.Deserialize<List<Binding>>(json) ?? new(); } catch { } }); };
+    }
+
+    internal void ApplySoundboardRuntime()
+    {
+        _sbShare.Passphrase = S.Passphrase;
+        if (S.Enabled && S.SoundboardEnabled) _sbShare.Start(S.FilePort + 1); else _sbShare.Stop();
+    }
+
+    void OpenMyInstants()
+    {
+        using var f = new MyInstantsForm();
+        f.SoundAdded += (title, url, bytes) => AddFromMyInstants(title, url, bytes);
+        f.ShowDialog(this);
+    }
+
+    /// <summary>A sound fetched in the MyInstants browser: save it, put it on the board, give the other PC a copy.</summary>
+    void AddFromMyInstants(string title, string url, byte[] bytes)
+    {
+        var stem = Path.GetFileNameWithoutExtension(new Uri(url).AbsolutePath);
+        var s = new SoundInfo
+        {
+            Id = "mi-" + string.Concat(stem.Where(c => char.IsLetterOrDigit(c) || c == '-')).ToLowerInvariant(),
+            Title = title.Length > 0 ? title : stem.Replace('-', ' ').Replace('_', ' '),
+            Url = url, Source = "myinstants", License = "MyInstants",
+            Attribution = $"\"{(title.Length > 0 ? title : stem)}\" from myinstants.com (user upload)",
+        };
+        var path = Soundboard.PathFor(s);
+        Directory.CreateDirectory(Soundboard.Dir);
+        File.WriteAllBytes(path, bytes);
+        if (!S.Sounds.Any(x => x.Id == s.Id)) { S.Sounds.Add(s); S.Save(); RefreshBoard(); }
+        Activity($"Added {s.ShortTitle} from MyInstants.", flash: false);
+        _ = PushToPeer(s);
+    }
+
+    async Task<bool> PushToPeer(SoundInfo s)
+    {
+        if (!Soundboard.IsBrowserOnly(s) || S.PeerHost.Length == 0 || !Soundboard.IsCached(s)) return false;
+        if (_sbPushed.Contains(s.Id)) return true;
+        var ok = await _sbShare.SendAsync(S.PeerHost, S.FilePort + 1, Soundboard.PathFor(s));
+        if (ok) _sbPushed.Add(s.Id);
+        return ok;
     }
 
     /// <summary>Share this PC's hotkey rows with the other PC, so its soundboard can offer them too.</summary>
@@ -465,6 +511,7 @@ public sealed partial class MainForm
         int gen = _sbStopGen;
         if (!S.Enabled && !preview) { SetStatus("Paused - resume to play sounds."); return; }
         if (!S.SoundboardEnabled && !preview) { SetStatus("The soundboard is off."); return; }
+        if (broadcast && S.PeerHost.Length > 0 && Soundboard.IsBrowserOnly(s)) await PushToPeer(s);   // the other PC can't fetch MyInstants files itself
         if (broadcast && S.PeerHost.Length > 0)
         {
             var msg = JsonSerializer.Deserialize<SoundInfo>(JsonSerializer.Serialize(s))!;
@@ -517,6 +564,15 @@ public sealed partial class MainForm
         catch (Exception ex) { Activity($"Sound {s.ShortTitle} could not play: {ex.Message}", flash: false); }
     }
 
+    /// <summary>A MyInstants sound whose file is still on its way from the other PC: wait a few seconds for it.</summary>
+    async Task PlayWhenArrived(SoundInfo s, bool viaMic)
+    {
+        for (int i = 0; i < 25 && !Soundboard.IsCached(s); i++) await Task.Delay(200);
+        if (!Soundboard.IsCached(s)) { Activity($"Sound {s.ShortTitle} did not arrive from {PeerName()} in time.", flash: false); return; }
+        if (viaMic && S.Role == PcRole.Gaming && _virtualMic.InputEndpoint != null && S.SoundDeviceId == _virtualMic.InputEndpoint.Id) return;
+        _ = PlaySound(s, broadcast: false);
+    }
+
     void OnSoundFromPeer(string json, IPEndPoint from)
     {
         if (json == StopMessage) { StopAllSounds(broadcast: false); return; }
@@ -526,6 +582,7 @@ public sealed partial class MainForm
         if (s == null || s.Url.Length == 0 || !Uri.TryCreate(s.Url, UriKind.Absolute, out var u) || u.Scheme != "https") return;
         bool viaMic = s.ViaMic; s.ViaMic = false;
         if (!S.Sounds.Any(x => x.Id == s.Id)) { S.Sounds.Add(s); S.Save(); RefreshBoard(); }   // keep both boards the same
+        if (Soundboard.IsBrowserOnly(s) && !Soundboard.IsCached(s)) { _ = PlayWhenArrived(s, viaMic); return; }
         // the streaming PC already mixed it into the mic that plays into CABLE here: playing it into CABLE again would double it
         if (viaMic && S.Role == PcRole.Gaming && _virtualMic.InputEndpoint != null && S.SoundDeviceId == _virtualMic.InputEndpoint.Id) return;
         _ = PlaySound(s, broadcast: false);

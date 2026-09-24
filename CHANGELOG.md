@@ -2,6 +2,11 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.7.0
+- **MyInstants on the soundboard.** Browse MyInstants opens myinstants.com in a browser window inside KennelBridge (the Edge WebView2 engine that ships with Windows), and every sound on its pages gets a **+ Board** button. The file is fetched in that browser session and put straight on your board, saved on the PC. MyInstants only serves its sounds to a real browser, which is why it works this way rather than as a search in the app.
+- **The other PC gets its own copy.** It cannot fetch MyInstants files itself, so KennelBridge sends the file over your LAN when you add it and before the first play on both PCs. This uses a new TCP port, 47854 (the file bridge's port + 1): press **Firewall…** on the Connection page again on both PCs so it is let in.
+- MyInstants sounds are uploads by its users; the window says so, and the streamer is responsible for having the right to play them.
+
 ## 1.6.0
 - **The board comes first.** On the Soundboard page your board is now large and on top, next to Find sounds, with the Output settings underneath. Sound buttons are bigger.
 - **Hover a sound and press Delete or Backspace** to take it off the board (ignored while you are typing in the search box). Right-click → Remove still works.

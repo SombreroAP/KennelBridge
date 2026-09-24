@@ -388,6 +388,7 @@ public sealed partial class MainForm : Form
         ApplyOverlayRuntime();
         ApplyFileRuntime();
         ApplyAudioRuntime();
+        ApplySoundboardRuntime();
     }
 
     void SetEnabled(bool on)
@@ -543,6 +544,7 @@ public sealed partial class MainForm : Form
         ShutdownFiles();
         ShutdownAudio();
         StopAllSounds(broadcast: false);
+        _sbShare.Dispose();
         ReleaseMicMute();
         foreach (var h in _sbHolds.Values.Where(x => x.local).ToList()) Native.InjectUp(h.b);   // never leave a key down here
         Disc.Dispose();
@@ -583,13 +585,13 @@ public sealed partial class MainForm : Form
         var udp = $"{S.Port},{Discovery.Port},{S.AudioPort}";
         var script = "netsh advfirewall firewall delete rule name=\"KennelBridge\" >nul 2>&1 & " +
                      $"netsh advfirewall firewall add rule name=\"KennelBridge\" dir=in action=allow protocol=UDP localport={udp} & " +
-                     $"netsh advfirewall firewall add rule name=\"KennelBridge\" dir=in action=allow protocol=TCP localport={S.FilePort}";
+                     $"netsh advfirewall firewall add rule name=\"KennelBridge\" dir=in action=allow protocol=TCP localport={S.FilePort},{S.FilePort + 1}";
         try
         {
             var p = Process.Start(new ProcessStartInfo("cmd.exe", "/c " + script) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden });
             p?.WaitForExit(15000);
             bool ok = p is { ExitCode: 0 };
-            SetStatus(ok ? $"Firewall now allows UDP {udp} and TCP {S.FilePort} in." : "Firewall rule was not added.");
+            SetStatus(ok ? $"Firewall now allows UDP {udp} and TCP {S.FilePort},{S.FilePort + 1} in." : "Firewall rule was not added.");
             return ok;
         }
         catch (Exception ex) { SetStatus("Firewall change cancelled: " + ex.Message); return false; }
