@@ -48,7 +48,7 @@ public sealed partial class MainForm : Form
     bool _allowVisible, _reallyExit, _shownTrayTip, _loadingUi, _restoredSize, _wizardShown;
     static readonly Regex Ipv4 = new(@"\b\d{1,3}(\.\d{1,3}){3}\b", RegexOptions.Compiled);
 
-    public const string PageConnection = "Connection", PageOverlay = "Input Overlay", PageAudio = "Audio", PageHotkeys = "Hotkeys", PageFiles = "Files", PageActivity = "Activity";
+    public const string PageConnection = "Connection", PageOverlay = "Input Overlay", PageAudio = "Audio", PageHotkeys = "Hotkeys", PageFiles = "Files", PageSounds = "Soundboard", PageActivity = "Activity";
 
     public MainForm(bool startHidden)
     {
@@ -85,6 +85,7 @@ public sealed partial class MainForm : Form
         WireOverlay();
         WireAudio();
         WireFiles();
+        WireSoundboard();
 
         LoadSettingsIntoUi();
         ApplyRuntime();
@@ -114,6 +115,7 @@ public sealed partial class MainForm : Form
         [PageAudio] = ("\uE7F6", "Game audio to the headphones, the microphone back to the game."),
         [PageHotkeys] = ("\uE765", "Press a key here and the other PC presses it too."),
         [PageFiles] = ("\uE8B7", "Finished recordings copied from one PC to the other."),
+        [PageSounds] = ("\uE767", "Sounds you can play into the mic on both PCs."),
         [PageActivity] = ("\uE81C", "Everything the bridges did, newest first."),
     };
 
@@ -188,6 +190,7 @@ public sealed partial class MainForm : Form
         AddPage(PageAudio, BuildAudioPage(), () => S.Enabled && _audioSession != null);
         AddPage(PageHotkeys, BuildHotkeysPage(), () => S.Enabled && S.HotkeysEnabled);
         AddPage(PageFiles, BuildFilesPage(), () => S.Enabled && (S.FileSendEnabled || S.FileReceiveEnabled));
+        AddPage(PageSounds, BuildSoundboardPage(), () => S.Enabled && S.SoundboardEnabled);
         AddPage(PageActivity, BuildActivityPage(), null);
         ShowPage(PageConnection);
     }
@@ -349,6 +352,7 @@ public sealed partial class MainForm : Form
         LoadAudioUi();
         LoadHotkeysUi();
         LoadFilesUi();
+        LoadSoundboardUi();
         ApplyStreamerModeToUi();
         UpdateTray();
         RefreshOverlayUrl();
@@ -538,6 +542,7 @@ public sealed partial class MainForm : Form
         ShutdownOverlay();
         ShutdownFiles();
         ShutdownAudio();
+        Soundboard.StopAll();
         Disc.Dispose();
         Link.Dispose();
         _tray.Visible = false;

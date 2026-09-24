@@ -2,6 +2,12 @@
 
 All notable changes to KennelBridge. Release notes on GitHub are taken from here.
 
+## 1.3.0
+- **Soundboard.** A new page. Search a catalogue of Creative Commons sounds (Openverse, which covers Freesound, Wikimedia and more), or tap a category such as air horn, applause, laugh or drum roll, preview a sound, and add it to your board. It downloads once and is saved on the PC, so it plays instantly after that. No files to find or name yourself.
+- **Plays on both PCs.** Pressing a sound on either PC plays it there and tells the other PC to play it too; the other PC fetches it the first time and adds it to its own board, so the two boards stay the same.
+- **Into the mic.** On the gaming PC sounds play into CABLE Input by default, where Windows mixes them with the microphone the audio bridge delivers, so the game and Discord hear them. On the streaming PC they play on the normal output so OBS picks them up. Either can be changed under Output, with a volume setting and Stop all.
+- Only licences that are fine on a monetised stream are offered (CC0, CC BY, CC BY-SA). Right-click a sound to copy its credit line, which CC BY sounds ask for.
+
 ## 1.2.0
 - **Audio crackling fixed at the source.** Three things in the playback loop caused it, whichever latency setting was picked: the loop slept on Windows' default 15.6 ms timer, so the sound card's 25–40 ms buffer could run dry between wake-ups; nothing kept a cushion in front of the card after start-up, so ordinary network jitter emptied it; and clock drift between the two PCs was corrected by throwing away a whole 5 ms block at once, an audible click. Now the loop runs on a 1 ms timer, keeps a cushion of 20 / 35 / 70 ms (Lowest / Balanced / Most stable) and rebuilds it after any gap, follows drift one sample-frame at a time, and fills a lost packet with a quieter copy of the previous one instead of a hole of silence. Latency goes up by about the cushion.
 - **Collect diagnostics.** A button on the Activity page (and in the tray menu) saves one zip to the Desktop: the log, settings with the passphrase removed, a system report (Windows and app version, display scaling, network adapters with Wi-Fi or cable and link speed, every audio device with the format Windows runs it at) and what the app is showing right now. Nothing is sent anywhere; you pass the zip on.

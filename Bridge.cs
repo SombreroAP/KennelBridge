@@ -15,7 +15,7 @@ namespace KennelBridge;
 /// </summary>
 public sealed class Bridge : IDisposable
 {
-    const string PingMagic = "KNLP", HotkeyMagic = "KNLK", InputMagic = "KNLI";
+    const string PingMagic = "KNLP", HotkeyMagic = "KNLK", InputMagic = "KNLI", SoundMagic = "KNLS";
 
     UdpClient? _udp;
     CancellationTokenSource? _cts;
@@ -28,6 +28,8 @@ public sealed class Bridge : IDisposable
     public event Action<Binding, PressState, IPEndPoint>? HotkeyReceived;
     /// <summary>An input snapshot (JSON) arrived from the peer. Thread-pool thread.</summary>
     public event Action<string, IPEndPoint>? InputReceived;
+    /// <summary>The other PC played a sound (JSON SoundInfo). Thread-pool thread.</summary>
+    public event Action<string, IPEndPoint>? SoundReceived;
     public bool Listening => _udp != null;
 
     public void Start(int port)
@@ -76,7 +78,7 @@ public sealed class Bridge : IDisposable
         string text;
         try { text = Encoding.UTF8.GetString(r.Buffer); } catch { return; }
         var p = text.Split('\t');
-        if (p.Length < 3 || p[0] is not (PingMagic or HotkeyMagic or InputMagic)) return;   // not ours; ignore silently
+        if (p.Length < 3 || p[0] is not (PingMagic or HotkeyMagic or InputMagic or SoundMagic)) return;   // not ours; ignore silently
         if (!string.Equals(p[1], Passphrase, StringComparison.Ordinal))
         {
             if (p[0] != InputMagic) Log?.Invoke($"Ignored a request from {r.RemoteEndPoint.Address}: passphrase does not match.");
@@ -100,6 +102,9 @@ public sealed class Bridge : IDisposable
             case InputMagic:
                 InputReceived?.Invoke(p[2], r.RemoteEndPoint);
                 break;
+            case SoundMagic:
+                SoundReceived?.Invoke(p[2], r.RemoteEndPoint);
+                break;
         }
     }
 
@@ -121,6 +126,19 @@ public sealed class Bridge : IDisposable
             Log?.Invoke($"Send to {host} failed: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>Ask the other PC to play a sound too (JSON SoundInfo, well under one datagram).</summary>
+    public void SendSound(string host, int port, string json)
+    {
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(string.Join('\t', SoundMagic, Passphrase, json.Replace('\t', ' ')));
+            var udp = _udp ?? new UdpClient(AddressFamily.InterNetwork);
+            udp.Send(bytes, bytes.Length, host.Trim(), port);
+            if (udp != _udp) udp.Dispose();
+        }
+        catch (Exception ex) { Log?.Invoke($"Sound to {host} failed: {ex.Message}"); }
     }
 
     /// <summary>Fire-and-forget input state to the peer (no logging: this runs up to 60 times a second).</summary>

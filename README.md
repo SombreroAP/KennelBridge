@@ -46,6 +46,16 @@ the ones you want.
 running in the tray; the amber icon flashes green on activity. **Pause** in the header stops every
 bridge at once.
 
+## Soundboard
+
+The **Soundboard** page searches Openverse, an open catalogue of Creative Commons audio (Freesound,
+Wikimedia and more). Preview, then **Add to board**: the sound downloads once to
+`%APPDATA%\KennelBridge\sounds` and plays instantly after that. With *Play on both PCs* on, a press
+on either PC plays on both, and the other PC adds the sound to its own board. On the gaming PC sounds
+go into **CABLE Input** by default, mixed with your streamed microphone, so the game and Discord hear
+them; on the streaming PC they go to the normal output for OBS. Only CC0, CC BY and CC BY-SA sounds
+are listed; right-click a sound to copy the credit line CC BY asks for (a stream description is fine).
+
 ## Problems
 
 **Collect diagnostics** on the Activity page (or in the tray menu) saves a zip to the Desktop with

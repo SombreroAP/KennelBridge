@@ -92,6 +92,14 @@ public sealed class Settings
     public string FileReceiveFolder { get; set; } = "";
     public int FilePort { get; set; } = 47853;           // TCP
 
+    // ---- soundboard ----
+    public bool SoundboardEnabled { get; set; } = true;
+    public bool SoundBothPcs { get; set; } = true;        // a press plays on this PC and the other one
+    public string? SoundDeviceId { get; set; }            // null = Windows default; gaming PC defaults to CABLE Input
+    public bool SoundDeviceSet { get; set; }              // the user picked a device (stop applying the default)
+    public int SoundVolume { get; set; } = 75;
+    public List<SoundInfo> Sounds { get; set; } = new();
+
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KennelBridge");
     public static string FilePath => Path.Combine(Dir, "settings.json");
     public static string LogPath => Path.Combine(Dir, "kennelbridge.log");

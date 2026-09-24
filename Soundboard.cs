@@ -1,0 +1,149 @@
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using KennelBridge.Audio;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
+
+namespace KennelBridge;
+
+/// <summary>One sound on the board (or in search results). Id is the catalogue's own id, so both PCs agree on it.</summary>
+public sealed class SoundInfo
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string License { get; set; } = "";
+    public string Attribution { get; set; } = "";
+    public int DurationMs { get; set; }
+    public string Source { get; set; } = "";
+    [JsonIgnore] public string LengthText => DurationMs <= 0 ? "" : DurationMs < 60000 ? $"{DurationMs / 1000.0:0.0} s" : $"{DurationMs / 60000}:{DurationMs / 1000 % 60:00}";
+    [JsonIgnore] public string ShortTitle => Soundboard.Tidy(Title);
+}
+
+/// <summary>
+/// The soundboard's library and player.
+///
+/// Catalogue: Openverse (api.openverse.org), an open search over Creative Commons audio from Freesound,
+/// Wikimedia and others; no account or key. Only licences that allow use on a monetised stream are asked
+/// for (CC0, CC BY, CC BY-SA). Each sound is downloaded once into %APPDATA%\KennelBridge\sounds and played
+/// from there after that.
+///
+/// Playing opens a shared-mode WASAPI stream on the chosen output. Windows mixes shared streams, so playing
+/// into CABLE Input on the gaming PC adds the sound to the microphone the audio bridge already plays there.
+/// </summary>
+public static class Soundboard
+{
+    public static string Dir => Path.Combine(Settings.Dir, "sounds");
+    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
+    static readonly object Gate = new();
+    static readonly List<IWavePlayer> Playing = new();
+
+    static Soundboard() => Http.DefaultRequestHeaders.UserAgent.ParseAdd($"KennelBridge/{UpdateCheck.CurrentText} (+https://kennel.gg/bridge/)");
+
+    public static readonly string[] Categories =
+        { "air horn", "applause", "laugh", "drum roll", "fail", "victory", "explosion", "whoosh", "ding", "buzzer", "crickets", "gasp", "boing", "cash register", "record scratch", "bell" };
+
+    /// <summary>Search the catalogue. Short sounds first; nothing longer than a minute.</summary>
+    public static async Task<List<SoundInfo>> SearchAsync(string query, int page = 1, CancellationToken ct = default)
+    {
+        // anonymous requests are capped at 20 per page: take two pages
+        var list = new List<SoundInfo>();
+        for (int pg = page * 2 - 1; pg <= page * 2; pg++)
+        {
+            var url = $"https://api.openverse.org/v1/audio/?q={Uri.EscapeDataString(query)}&page_size=20&page={pg}&license=cc0,by,by-sa&mature=false";
+            JsonDocument doc;
+            try
+            {
+                using var res = await Http.GetAsync(url, ct);
+                if (!res.IsSuccessStatusCode) { if (pg == page * 2 - 1) res.EnsureSuccessStatusCode(); break; }   // a missing 2nd page is fine
+                doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+            }
+            catch when (pg != page * 2 - 1) { break; }
+            using var _ = doc;
+            ReadResults(doc, list);
+            if (!doc.RootElement.TryGetProperty("page_count", out var pc) || pc.ValueKind != JsonValueKind.Number || pc.GetInt32() <= pg) break;
+        }
+        return list.GroupBy(x => x.Id).Select(g => g.First()).OrderBy(x => x.DurationMs <= 0 ? int.MaxValue : x.DurationMs).ToList();
+    }
+
+    static void ReadResults(JsonDocument doc, List<SoundInfo> list)
+    {
+        foreach (var r in doc.RootElement.GetProperty("results").EnumerateArray())
+        {
+            string S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+            int dur = r.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetInt32() : 0;
+            var u = S("url");
+            if (u.Length == 0 || (dur > 60000)) continue;
+            var lic = S("license"); var ver = S("license_version");
+            list.Add(new SoundInfo
+            {
+                Id = S("id"), Title = S("title"), Url = u, DurationMs = dur, Source = S("source"),
+                License = lic == "cc0" ? "CC0" : $"CC {lic.ToUpperInvariant()} {ver}".Trim(),
+                Attribution = S("attribution"),
+            });
+        }
+    }
+
+    public static string PathFor(SoundInfo s)
+    {
+        var ext = Path.GetExtension(new Uri(s.Url).AbsolutePath);
+        if (ext.Length is 0 or > 5) ext = ".mp3";
+        var safe = string.Concat(s.Id.Where(c => char.IsLetterOrDigit(c) || c == '-'));
+        return Path.Combine(Dir, (safe.Length > 0 ? safe : Math.Abs(s.Url.GetHashCode()).ToString()) + ext);
+    }
+
+    public static bool IsCached(SoundInfo s) => File.Exists(PathFor(s));
+
+    /// <summary>The local file, downloading it the first time.</summary>
+    public static async Task<string> EnsureAsync(SoundInfo s, CancellationToken ct = default)
+    {
+        var path = PathFor(s);
+        if (File.Exists(path)) return path;
+        Directory.CreateDirectory(Dir);
+        var tmp = path + ".part";
+        using (var res = await Http.GetAsync(s.Url, HttpCompletionOption.ResponseHeadersRead, ct))
+        {
+            res.EnsureSuccessStatusCode();
+            await using var src = await res.Content.ReadAsStreamAsync(ct);
+            await using var dst = File.Create(tmp);
+            await src.CopyToAsync(dst, ct);
+        }
+        File.Move(tmp, path, overwrite: true);
+        return path;
+    }
+
+    /// <summary>Play a file on an output device (null = Windows default). Several can overlap.</summary>
+    public static void Play(string path, string? deviceId, float volume)
+    {
+        var device = WindowsAudioDevices.Resolve(deviceId, DataFlow.Render) ?? throw new InvalidOperationException("No playback device.");
+        var reader = new MediaFoundationReader(path);
+        var vol = new VolumeSampleProvider(reader.ToSampleProvider()) { Volume = Math.Clamp(volume, 0f, 1f) };
+        var output = new WasapiOut(device, AudioClientShareMode.Shared, true, 60);
+        output.Init(vol);
+        output.PlaybackStopped += (_, _) =>
+        {
+            lock (Gate) Playing.Remove(output);
+            try { output.Dispose(); } catch { }
+            reader.Dispose(); device.Dispose();
+        };
+        lock (Gate) Playing.Add(output);
+        output.Play();
+    }
+
+    public static void StopAll()
+    {
+        IWavePlayer[] all;
+        lock (Gate) all = Playing.ToArray();
+        foreach (var p in all) { try { p.Stop(); } catch { } }
+    }
+
+    /// <summary>"Air_Horn_01.wav" → "Air Horn 01": catalogue titles are often file names.</summary>
+    public static string Tidy(string title)
+    {
+        var t = Path.GetExtension(title) is ".wav" or ".mp3" or ".ogg" or ".flac" or ".aif" or ".aiff" ? Path.GetFileNameWithoutExtension(title) : title;
+        t = t.Replace('_', ' ').Replace("  ", " ").Trim();
+        return t.Length > 40 ? t[..38].TrimEnd() + "…" : t;
+    }
+}
